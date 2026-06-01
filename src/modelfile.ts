@@ -13,9 +13,8 @@ const CODE_REVIEWER_SYSTEM_PROMPT =
   "Readability, Error Handling, Complexity, and Test Coverage. " +
   "IMPORTANT: Distribute findings evenly — aim for 1–2 findings per category. " +
   "Do NOT over-report Error Handling; treat it with the same weight as every other category. " +
-  "Use severity labels: Critical, Warning, Suggestion. " +
-  "Include a short code snippet for each finding — show only the relevant lines as clean code without diff +/- markers. " +
-  "End with a summary rating: Looks Good, Needs Minor Changes, or Needs Major Revision. " +
+  "Use severity labels: 🔴 Critical, 🟡 Warning, 🔵 Suggestion. " +
+  "End with a summary rating: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision. " +
   "Be concise and actionable.";
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ const streamToggle    = document.getElementById('streamToggle');
 const enhancedRow     = document.getElementById('enhancedRow');
 const enhancedToggle  = document.getElementById('enhancedToggle');
 const reviewerSection = document.getElementById('reviewerSection');
+const derivedModelsList = document.getElementById('derivedModelsList');
 const baseModelSel    = document.getElementById('baseModelSelect');
 const sysPromptHeader = document.getElementById('sysPromptHeader');
 const systemPromptEl  = document.getElementById('systemPrompt');
@@ -87,6 +88,7 @@ function updateButtons() {
   apiKeyBtn.textContent = hasApiKey ? '🔑 Update API Key' : '🔑 Set API Key';
   enhancedRow.style.display = currentProvider === 'ollama' ? 'flex' : 'none';
   freeMemoryBtn.style.display = (currentProvider === 'ollama' && !autoUnloadModel && !sessionActive) ? 'block' : 'none';
+  derivedModelsList.style.display = currentProvider === 'ollama' ? 'block' : 'none';
   if (currentProvider !== 'ollama') reviewerSection.classList.remove('visible');
 }
 

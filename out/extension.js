@@ -292,7 +292,6 @@ const DEFAULT_REVIEW_SYSTEM_PROMPT = "You are an expert Code Reviewer. Your job 
     "Review only the code provided across these categories: Correctness, Design, Security, Performance, Readability, and Error Handling. " +
     "IMPORTANT: Distribute findings evenly — aim for 1–2 findings per category. Do NOT focus disproportionately on any single category. " +
     "Use severity labels: 🔴 Critical, 🟡 Warning, 🔵 Suggestion. " +
-    "Include a short code snippet for each finding — show only the relevant lines as clean code without diff +/- markers. " +
     "End with a summary rating: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision. " +
     "After writing the summary rating, stop immediately. Do not repeat any finding already stated.";
 // ---------------------------------------------------------------------------
@@ -435,9 +434,15 @@ class SidePanelProvider {
             return "";
         }
         const apiKey = await this.getApiKey(this.activeProvider);
-        const history = this.buildHistoryForProvider();
+        const history = opts.historyOverride !== undefined
+            ? opts.historyOverride
+            : this.buildHistoryForProvider();
         const systemPrompt = this.buildSystemPrompt();
         const isStreaming = this.streamingMode === "chunked";
+        // Show the output channel on the first call of a new session so token stats are visible
+        if (this.exchangeCount === 0 && !skipExchangeCount) {
+            outputChannel.show(true); // preserveFocus=true — don't steal keyboard from editor
+        }
         const userTimestamp = Date.now();
         const numCtx = this.activeProvider === "ollama"
             ? (vscode.workspace.getConfiguration("raiview").get("ollamaContextWindow") ?? 8192)
@@ -486,6 +491,12 @@ class SidePanelProvider {
                             }, 300);
                         }
                     },
+                    onUsage: (inputTokens, outputTokens) => {
+                        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ${this.activeProvider} / ${model}` +
+                            ` | input: ${inputTokens.toLocaleString()} tokens` +
+                            ` | output: ${outputTokens.toLocaleString()} tokens` +
+                            ` | total: ${(inputTokens + outputTokens).toLocaleString()} tokens`);
+                    },
                 });
                 if (parseTimer) {
                     clearTimeout(parseTimer);
@@ -508,6 +519,12 @@ class SidePanelProvider {
                     history,
                     signal: abortController.signal,
                     numCtx,
+                    onUsage: (inputTokens, outputTokens) => {
+                        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ${this.activeProvider} / ${model}` +
+                            ` | input: ${inputTokens.toLocaleString()} tokens` +
+                            ` | output: ${outputTokens.toLocaleString()} tokens` +
+                            ` | total: ${(inputTokens + outputTokens).toLocaleString()} tokens`);
+                    },
                 });
                 const html = await (0, marked_1.marked)(fullResponse);
                 webviewView.webview.postMessage({
@@ -717,7 +734,13 @@ class SidePanelProvider {
             }
         }
         const limit = this.maxContentChars;
-        const buildGitInstruction = (files) => `\n\nReview ALL of the following files/sections present above:\n${files.map(f => `• ${f}`).join("\n")}\n\nFor each issue found, use this exact format:\n🔴 Critical / 🟡 Warning / 🔵 Suggestion — **[Short title]**\n[One sentence describing the issue.]\n\`\`\`\n[Relevant code snippet — clean lines only, no diff +/− markers]\n\`\`\`\n\nRules: Do NOT describe what the code does. Do NOT echo the diff. Cover every file listed above. End with one of: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision.`;
+        const buildGitInstruction = (files) => {
+            const fileList = files.map(f => `• ${f}`).join("\n");
+            if (this.enhancedReviewer) {
+                return `\n\nReview ALL of the following files/sections:\n${fileList}\n\nCover all categories: Correctness, Security, Performance, Design, Readability, Error Handling. Do NOT echo the diff. Cover every file listed above.`;
+            }
+            return `\n\nReview ALL of the following files/sections present above:\n${fileList}\n\nFor each issue found, use this exact format:\n🔴 Critical / 🟡 Warning / 🔵 Suggestion — **[Short title]**\n[One sentence describing the issue.]\n\nRules: Do NOT describe what the code does. Do NOT echo the diff. Cover every file listed above. End with one of: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision.`;
+        };
         // Greedily bin-pack units into chunks
         const chunks = [];
         let currentContent = "";
@@ -759,7 +782,13 @@ class SidePanelProvider {
         return chunks;
     }
     async buildFileChunks(customInput, webviewView) {
-        const buildFileInstruction = (fileName, scope) => `\n\nReview the code above${scope ? ` (${scope})` : ""} from file: ${fileName}\n\nFor each issue found, use this exact format:\n🔴 Critical / 🟡 Warning / 🔵 Suggestion — **[Short title]**\n[One sentence describing the issue.]\n\`\`\`\n[Relevant code snippet — clean lines only]\n\`\`\`\n\nRules: Do NOT describe what the code does. Do NOT echo the code. End with one of: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision.`;
+        const buildFileInstruction = (fileName, scope) => {
+            const header = `\n\nReview the code above${scope ? ` (${scope})` : ""} from file: ${fileName}`;
+            if (this.enhancedReviewer) {
+                return `${header}\n\nCover all categories: Correctness, Security, Performance, Design, Readability, Error Handling. Do NOT echo the code.`;
+            }
+            return `${header}\n\nFor each issue found, use this exact format:\n🔴 Critical / 🟡 Warning / 🔵 Suggestion — **[Short title]**\n[One sentence describing the issue.]\n\nRules: Do NOT describe what the code does. Do NOT echo the code. End with one of: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision.`;
+        };
         if (customInput && customInput.trim()) {
             const input = customInput.trim();
             if (isFilePath(input)) {
@@ -840,6 +869,7 @@ class SidePanelProvider {
                 model,
                 webviewView,
                 isSystemMessage: true,
+                historyOverride: [], // each chunk reviewed in isolation — no cross-chunk contamination
             });
             responses.push(response);
         }
@@ -1059,7 +1089,6 @@ class SidePanelProvider {
                         webviewView.webview.postMessage({ type: "reviewerModelStatus", status: "created" });
                         vscode.window.showInformationMessage(`code-reviewer model created from ${message.baseModel}.`);
                         await fetchModelsForWebview(this.activeProvider, await this.getApiKey(this.activeProvider), webviewView);
-                        webviewView.webview.postMessage({ type: "selectModel", model: (0, modelfile_1.getReviewerModelName)(message.baseModel) });
                     }
                     catch (err) {
                         webviewView.webview.postMessage({ type: "reviewerModelStatus", status: "error", message: err.message ?? String(err) });
@@ -1338,8 +1367,8 @@ class SidePanelProvider {
       </div>
       <button id="createReviewerBtn" class="secondary">Create code-reviewer Model</button>
       <div id="reviewerStatus" style="font-size:11px; color:var(--vscode-descriptionForeground);"></div>
-      <div id="derivedModelsList" class="derived-models-list"></div>
     </div>
+    <div id="derivedModelsList" class="derived-models-list" style="display:none;"></div>
   </div>
 
   <!-- Review buttons -->

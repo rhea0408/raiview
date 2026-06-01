@@ -140,6 +140,11 @@ class OllamaProvider {
                                 opts.onToken?.(token);
                             }
                             if (parsed.done) {
+                                const inputTok = parsed.prompt_eval_count ?? 0;
+                                const outputTok = parsed.eval_count ?? 0;
+                                if (inputTok || outputTok) {
+                                    opts.onUsage?.(inputTok, outputTok);
+                                }
                                 done(() => resolve(chunks.join("")));
                             }
                         }
@@ -223,6 +228,7 @@ class OpenAIProvider {
                 model: opts.model,
                 messages,
                 stream: true,
+                stream_options: { include_usage: true },
             }, { signal: opts.signal });
             const chunks = [];
             for await (const chunk of stream) {
@@ -230,6 +236,9 @@ class OpenAIProvider {
                 if (token) {
                     chunks.push(token);
                     opts.onToken(token);
+                }
+                if (chunk.usage) {
+                    opts.onUsage?.(chunk.usage.prompt_tokens, chunk.usage.completion_tokens);
                 }
             }
             return chunks.join("");
@@ -240,6 +249,9 @@ class OpenAIProvider {
                 messages,
                 stream: false,
             }, { signal: opts.signal });
+            if (response.usage) {
+                opts.onUsage?.(response.usage.prompt_tokens, response.usage.completion_tokens);
+            }
             return response.choices[0]?.message?.content ?? "";
         }
     }
@@ -287,13 +299,24 @@ class ClaudeProvider {
                 stream: true,
             }, { signal: opts.signal });
             const chunks = [];
+            let inputTokens = 0;
+            let outputTokens = 0;
             for await (const event of stream) {
-                if (event.type === "content_block_delta" &&
+                if (event.type === "message_start") {
+                    inputTokens = event.message.usage.input_tokens;
+                }
+                else if (event.type === "message_delta") {
+                    outputTokens = event.usage.output_tokens;
+                }
+                else if (event.type === "content_block_delta" &&
                     event.delta.type === "text_delta") {
                     const token = event.delta.text;
                     chunks.push(token);
                     opts.onToken(token);
                 }
+            }
+            if (inputTokens || outputTokens) {
+                opts.onUsage?.(inputTokens, outputTokens);
             }
             return chunks.join("");
         }
@@ -304,6 +327,7 @@ class ClaudeProvider {
                 system: opts.systemPrompt || undefined,
                 messages: claudeHistory,
             }, { signal: opts.signal });
+            opts.onUsage?.(response.usage.input_tokens, response.usage.output_tokens);
             const textBlock = response.content.find((b) => b.type === "text");
             return textBlock && textBlock.type === "text" ? textBlock.text : "";
         }

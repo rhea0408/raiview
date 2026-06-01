@@ -18,6 +18,7 @@ export interface GenerateOptions {
   apiKey?: string;
   stream: boolean;
   onToken?: (token: string) => void;
+  onUsage?: (inputTokens: number, outputTokens: number) => void;
   history?: ChatMessage[];
   signal?: AbortSignal;
   numCtx?: number; // Ollama-specific: context window size
@@ -122,7 +123,12 @@ export class OllamaProvider implements LLMProvider {
               const parsed = JSON.parse(t);
               const token: string = parsed.message?.content ?? "";
               if (token) { chunks.push(token); opts.onToken?.(token); }
-              if (parsed.done) { done(() => resolve(chunks.join(""))); }
+              if (parsed.done) {
+                const inputTok: number = parsed.prompt_eval_count ?? 0;
+                const outputTok: number = parsed.eval_count ?? 0;
+                if (inputTok || outputTok) { opts.onUsage?.(inputTok, outputTok); }
+                done(() => resolve(chunks.join("")));
+              }
             } catch { /* ignore non-JSON */ }
           }
         });
@@ -207,6 +213,7 @@ export class OpenAIProvider implements LLMProvider {
         model: opts.model,
         messages,
         stream: true,
+        stream_options: { include_usage: true },
       }, { signal: opts.signal });
       const chunks: string[] = [];
       for await (const chunk of stream) {
@@ -214,6 +221,9 @@ export class OpenAIProvider implements LLMProvider {
         if (token) {
           chunks.push(token);
           opts.onToken(token);
+        }
+        if (chunk.usage) {
+          opts.onUsage?.(chunk.usage.prompt_tokens, chunk.usage.completion_tokens);
         }
       }
       return chunks.join("");
@@ -223,6 +233,9 @@ export class OpenAIProvider implements LLMProvider {
         messages,
         stream: false,
       }, { signal: opts.signal });
+      if (response.usage) {
+        opts.onUsage?.(response.usage.prompt_tokens, response.usage.completion_tokens);
+      }
       return response.choices[0]?.message?.content ?? "";
     }
   }
@@ -275,8 +288,14 @@ export class ClaudeProvider implements LLMProvider {
         stream: true,
       }, { signal: opts.signal });
       const chunks: string[] = [];
+      let inputTokens = 0;
+      let outputTokens = 0;
       for await (const event of stream) {
-        if (
+        if (event.type === "message_start") {
+          inputTokens = event.message.usage.input_tokens;
+        } else if (event.type === "message_delta") {
+          outputTokens = event.usage.output_tokens;
+        } else if (
           event.type === "content_block_delta" &&
           event.delta.type === "text_delta"
         ) {
@@ -285,6 +304,7 @@ export class ClaudeProvider implements LLMProvider {
           opts.onToken(token);
         }
       }
+      if (inputTokens || outputTokens) { opts.onUsage?.(inputTokens, outputTokens); }
       return chunks.join("");
     } else {
       const response = await client.messages.create({
@@ -293,6 +313,7 @@ export class ClaudeProvider implements LLMProvider {
         system: opts.systemPrompt || undefined,
         messages: claudeHistory,
       }, { signal: opts.signal });
+      opts.onUsage?.(response.usage.input_tokens, response.usage.output_tokens);
       const textBlock = response.content.find((b) => b.type === "text");
       return textBlock && textBlock.type === "text" ? textBlock.text : "";
     }
