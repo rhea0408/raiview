@@ -1,0 +1,132 @@
+{
+  "name": "raiview",
+  "displayName": "Raiview",
+  "description": "AI-powered code reviews with Ollama, OpenAI, and Claude",
+  "version": "0.0.4",
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "raiview.reviewChanges",
+        "title": "Review Git Changes"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "raiview",
+          "title": "Raiview",
+          "icon": "$(zap)"
+        }
+      ]
+    },
+    "views": {
+      "raiview": [
+        {
+          "type": "webview",
+          "id": "raiview.sidePanel",
+          "name": "Raiview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Raiview",
+      "properties": {
+        "raiview.defaultProvider": {
+          "type": "string",
+          "default": "ollama",
+          "enum": [
+            "ollama",
+            "openai",
+            "claude"
+          ],
+          "enumDescriptions": [
+            "Local Ollama instance",
+            "OpenAI API (requires API key)",
+            "Anthropic Claude API (requires API key)"
+          ],
+          "description": "Default LLM provider to use for code reviews."
+        },
+        "raiview.ollamaUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Base URL for the Ollama instance."
+        },
+        "raiview.defaultSystemPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "Default system prompt sent with every review request. Leave empty to use no system prompt."
+        },
+        "raiview.streamingMode": {
+          "type": "string",
+          "default": "chunked",
+          "enum": [
+            "chunked",
+            "complete"
+          ],
+          "enumDescriptions": [
+            "Tokens appear as they arrive (streaming)",
+            "Full response shown after generation completes"
+          ],
+          "description": "How LLM responses are displayed."
+        },
+        "raiview.enhancedReviewer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the enhanced code-reviewer Modelfile when reviewing with Ollama."
+        },
+        "raiview.autoUnloadModel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically unload the Ollama model from memory (VRAM/RAM) when starting a new session. Frees memory immediately but adds reload time at the start of the next review. When disabled, a manual 'Free Memory' button is shown before a session starts."
+        },
+        "raiview.maxContentChars": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "maximum": 100000,
+          "description": "Maximum characters of file/diff content sent to the LLM per review. Default 10000 chars ≈ 3300 tokens, fits within a 8192 context window alongside the system prompt and response. Increase if your GPU has more VRAM and your model supports a larger context window."
+        },
+        "raiview.ollamaContextWindow": {
+          "type": "number",
+          "default": 8192,
+          "enum": [2048, 4096, 8192, 16384, 32768],
+          "enumDescriptions": [
+            "2048 tokens — minimal VRAM usage, very small models or low memory",
+            "4096 tokens — recommended for 6 GB VRAM with 7B models",
+            "8192 tokens — suitable for 12–16 GB VRAM with 7–13B models",
+            "16384 tokens — requires 24+ GB VRAM or CPU offloading",
+            "32768 tokens — large models only, 32+ GB VRAM"
+          ],
+          "description": "Context window size (num_ctx) used when creating the enhanced code-reviewer model in Ollama. Applies on next model creation — delete and recreate the reviewer model after changing this."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.110.0",
+    "@vscode/vsce": "^3.7.1",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
+    "marked": "^17.0.5",
+    "openai": "^6.33.0"
+  }
+}
