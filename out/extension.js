@@ -311,6 +311,7 @@ class SidePanelProvider {
         this.currentModel = "";
         this.activeSessionTrigger = null;
         this.activeAbortController = null;
+        this.reviewCancelled = false;
         // Rolling summary state
         this.latestSummary = null;
         this.summaryGenerationId = 0;
@@ -404,6 +405,7 @@ class SidePanelProvider {
         await this.context.globalState.update("raiview.chatSessions", sessions.slice(0, 5));
     }
     async startNewSession(webviewView) {
+        this.reviewCancelled = true; // halt any running chunked review loop
         await this.saveCurrentSession();
         const config = vscode.workspace.getConfiguration("raiview");
         if (this.activeProvider === "ollama" && this.currentModel && config.get("autoUnloadModel")) {
@@ -844,6 +846,7 @@ class SidePanelProvider {
     // Chunked review orchestrator
     // -------------------------------------------------------------------------
     async runChunkedReview(chunks, model, webviewView, singleDisplayText) {
+        this.reviewCancelled = false; // reset for this review run
         if (chunks.length > 1) {
             webviewView.webview.postMessage({
                 type: "systemMessage",
@@ -852,7 +855,7 @@ class SidePanelProvider {
         }
         const responses = [];
         for (let i = 0; i < chunks.length; i++) {
-            if (this.activeAbortController?.signal.aborted) {
+            if (this.reviewCancelled) {
                 break;
             }
             if (chunks.length > 1) {
@@ -874,7 +877,7 @@ class SidePanelProvider {
             responses.push(response);
         }
         // Combined summary across all chunks — not counted as an exchange
-        if (chunks.length > 1 && responses.length === chunks.length && !this.activeAbortController?.signal.aborted) {
+        if (chunks.length > 1 && responses.length === chunks.length && !this.reviewCancelled) {
             webviewView.webview.postMessage({
                 type: "systemMessage",
                 text: "— Generating combined summary across all parts —",
@@ -1018,6 +1021,7 @@ class SidePanelProvider {
                     break;
                 }
                 case "stopGeneration": {
+                    this.reviewCancelled = true;
                     if (this.activeAbortController) {
                         this.activeAbortController.abort();
                         this.activeAbortController = null;

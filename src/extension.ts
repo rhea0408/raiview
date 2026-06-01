@@ -332,6 +332,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
   private currentModel = "";
   private activeSessionTrigger: "git" | "file" | null = null;
   private activeAbortController: AbortController | null = null;
+  private reviewCancelled = false;
 
   // Rolling summary state
   private latestSummary: string | null = null;
@@ -441,6 +442,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
   }
 
   private async startNewSession(webviewView: vscode.WebviewView): Promise<void> {
+    this.reviewCancelled = true;  // halt any running chunked review loop
     await this.saveCurrentSession();
     const config = vscode.workspace.getConfiguration("raiview");
     if (this.activeProvider === "ollama" && this.currentModel && config.get<boolean>("autoUnloadModel")) {
@@ -943,6 +945,8 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     webviewView: vscode.WebviewView,
     singleDisplayText: string
   ): Promise<void> {
+    this.reviewCancelled = false;  // reset for this review run
+
     if (chunks.length > 1) {
       webviewView.webview.postMessage({
         type: "systemMessage",
@@ -953,7 +957,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     const responses: string[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
-      if (this.activeAbortController?.signal.aborted) { break; }
+      if (this.reviewCancelled) { break; }
 
       if (chunks.length > 1) {
         webviewView.webview.postMessage({
@@ -976,7 +980,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     }
 
     // Combined summary across all chunks — not counted as an exchange
-    if (chunks.length > 1 && responses.length === chunks.length && !this.activeAbortController?.signal.aborted) {
+    if (chunks.length > 1 && responses.length === chunks.length && !this.reviewCancelled) {
       webviewView.webview.postMessage({
         type: "systemMessage",
         text: "— Generating combined summary across all parts —",
@@ -1149,6 +1153,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
         }
 
         case "stopGeneration": {
+          this.reviewCancelled = true;
           if (this.activeAbortController) {
             this.activeAbortController.abort();
             this.activeAbortController = null;
