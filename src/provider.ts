@@ -22,6 +22,8 @@ export interface GenerateOptions {
   history?: ChatMessage[];
   signal?: AbortSignal;
   numCtx?: number; // Ollama-specific: context window size
+  numPredict?: number; // Ollama-specific: max tokens to generate
+  jsonSchema?: object; // When set, provider switches to structured JSON output mode
 }
 
 export interface LLMProvider {
@@ -79,9 +81,13 @@ export class OllamaProvider implements LLMProvider {
     const body: Record<string, unknown> = {
       model: opts.model,
       messages,
-      stream: !!(opts.stream && opts.onToken),
+      stream: !!(opts.stream && opts.onToken && !opts.jsonSchema), // no streaming in JSON mode
     };
-    body.options = { num_predict: 1500, ...(opts.numCtx ? { num_ctx: opts.numCtx } : {}) };
+    body.options = {
+      num_predict: opts.numPredict ?? (opts.jsonSchema ? 3000 : 1500),
+      ...(opts.numCtx ? { num_ctx: opts.numCtx } : {}),
+    };
+    if (opts.jsonSchema) { body.format = "json"; }
 
     const bodyStr = JSON.stringify(body);
     const url = new URL("/api/chat", this.baseUrl);
@@ -132,7 +138,22 @@ export class OllamaProvider implements LLMProvider {
             } catch { /* ignore non-JSON */ }
           }
         });
-        res.on("end", () => done(() => resolve(chunks.join(""))));
+        res.on("end", () => {
+          // Process any remaining buffered content (non-streaming responses have no trailing newline)
+          if (buf.trim()) {
+            try {
+              const parsed = JSON.parse(buf.trim());
+              const token: string = parsed.message?.content ?? "";
+              if (token) { chunks.push(token); opts.onToken?.(token); }
+              if (parsed.done) {
+                const inputTok: number = parsed.prompt_eval_count ?? 0;
+                const outputTok: number = parsed.eval_count ?? 0;
+                if (inputTok || outputTok) { opts.onUsage?.(inputTok, outputTok); }
+              }
+            } catch { /* ignore non-JSON */ }
+          }
+          done(() => resolve(chunks.join("")));
+        });
         res.on("error", (e) => done(() => reject(e)));
       });
 
@@ -208,7 +229,7 @@ export class OpenAIProvider implements LLMProvider {
     }
     messages.push({ role: "user", content: opts.prompt });
 
-    if (opts.stream && opts.onToken) {
+    if (opts.stream && opts.onToken && !opts.jsonSchema) {
       const stream = await client.chat.completions.create({
         model: opts.model,
         messages,
@@ -228,11 +249,18 @@ export class OpenAIProvider implements LLMProvider {
       }
       return chunks.join("");
     } else {
-      const response = await client.chat.completions.create({
+      const createOpts: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
         model: opts.model,
         messages,
         stream: false,
-      }, { signal: opts.signal });
+      };
+      if (opts.jsonSchema) {
+        createOpts.response_format = {
+          type: "json_schema",
+          json_schema: { name: "review", schema: opts.jsonSchema as Record<string, unknown>, strict: true },
+        } as OpenAI.ResponseFormatJSONSchema;
+      }
+      const response = await client.chat.completions.create(createOpts, { signal: opts.signal });
       if (response.usage) {
         opts.onUsage?.(response.usage.prompt_tokens, response.usage.completion_tokens);
       }
@@ -271,15 +299,19 @@ export class ClaudeProvider implements LLMProvider {
     }
     const client = this.client(opts.apiKey);
 
+    const effectivePrompt = opts.jsonSchema
+      ? `Respond only with valid JSON matching this schema: ${JSON.stringify(opts.jsonSchema)}\n\n${opts.prompt}`
+      : opts.prompt;
+
     const claudeHistory: Anthropic.MessageParam[] = [
       ...(opts.history ?? []).map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
-      { role: "user" as const, content: opts.prompt },
+      { role: "user" as const, content: effectivePrompt },
     ];
 
-    if (opts.stream && opts.onToken) {
+    if (opts.stream && opts.onToken && !opts.jsonSchema) {
       const stream = await client.messages.create({
         model: opts.model,
         max_tokens: 4096,

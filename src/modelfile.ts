@@ -13,8 +13,6 @@ const CODE_REVIEWER_SYSTEM_PROMPT =
   "Readability, Error Handling, Complexity, and Test Coverage. " +
   "IMPORTANT: Distribute findings evenly — aim for 1–2 findings per category. " +
   "Do NOT over-report Error Handling; treat it with the same weight as every other category. " +
-  "Use severity labels: 🔴 Critical, 🟡 Warning, 🔵 Suggestion. " +
-  "End with a summary rating: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision. " +
   "Be concise and actionable.";
 
 // ---------------------------------------------------------------------------
@@ -242,7 +240,8 @@ export async function createReviewerModel(
   baseModel: string,
   ollamaUrl: string = "http://localhost:11434",
   onProgress?: (status: string) => void,
-  numCtx: number = 8192
+  numCtx: number = 8192,
+  numPredict: number = 2000
 ): Promise<void> {
   await ollamaStreamRequest(
     "POST",
@@ -256,7 +255,7 @@ export async function createReviewerModel(
         temperature: 0.2,
         repeat_penalty: 1.3,
         num_ctx: numCtx,
-        num_predict: 1500,
+        num_predict: numPredict,
         top_p: 0.9,
       },
       stream: true,

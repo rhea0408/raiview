@@ -89,9 +89,15 @@ class OllamaProvider {
         const body = {
             model: opts.model,
             messages,
-            stream: !!(opts.stream && opts.onToken),
+            stream: !!(opts.stream && opts.onToken && !opts.jsonSchema), // no streaming in JSON mode
         };
-        body.options = { num_predict: 1500, ...(opts.numCtx ? { num_ctx: opts.numCtx } : {}) };
+        body.options = {
+            num_predict: opts.numPredict ?? (opts.jsonSchema ? 3000 : 1500),
+            ...(opts.numCtx ? { num_ctx: opts.numCtx } : {}),
+        };
+        if (opts.jsonSchema) {
+            body.format = "json";
+        }
         const bodyStr = JSON.stringify(body);
         const url = new URL("/api/chat", this.baseUrl);
         return new Promise((resolve, reject) => {
@@ -151,7 +157,28 @@ class OllamaProvider {
                         catch { /* ignore non-JSON */ }
                     }
                 });
-                res.on("end", () => done(() => resolve(chunks.join(""))));
+                res.on("end", () => {
+                    // Process any remaining buffered content (non-streaming responses have no trailing newline)
+                    if (buf.trim()) {
+                        try {
+                            const parsed = JSON.parse(buf.trim());
+                            const token = parsed.message?.content ?? "";
+                            if (token) {
+                                chunks.push(token);
+                                opts.onToken?.(token);
+                            }
+                            if (parsed.done) {
+                                const inputTok = parsed.prompt_eval_count ?? 0;
+                                const outputTok = parsed.eval_count ?? 0;
+                                if (inputTok || outputTok) {
+                                    opts.onUsage?.(inputTok, outputTok);
+                                }
+                            }
+                        }
+                        catch { /* ignore non-JSON */ }
+                    }
+                    done(() => resolve(chunks.join("")));
+                });
                 res.on("error", (e) => done(() => reject(e)));
             });
             if (opts.signal) {
@@ -223,7 +250,7 @@ class OpenAIProvider {
             messages.push({ role: m.role, content: m.content });
         }
         messages.push({ role: "user", content: opts.prompt });
-        if (opts.stream && opts.onToken) {
+        if (opts.stream && opts.onToken && !opts.jsonSchema) {
             const stream = await client.chat.completions.create({
                 model: opts.model,
                 messages,
@@ -244,11 +271,18 @@ class OpenAIProvider {
             return chunks.join("");
         }
         else {
-            const response = await client.chat.completions.create({
+            const createOpts = {
                 model: opts.model,
                 messages,
                 stream: false,
-            }, { signal: opts.signal });
+            };
+            if (opts.jsonSchema) {
+                createOpts.response_format = {
+                    type: "json_schema",
+                    json_schema: { name: "review", schema: opts.jsonSchema, strict: true },
+                };
+            }
+            const response = await client.chat.completions.create(createOpts, { signal: opts.signal });
             if (response.usage) {
                 opts.onUsage?.(response.usage.prompt_tokens, response.usage.completion_tokens);
             }
@@ -283,14 +317,17 @@ class ClaudeProvider {
             throw new Error("Claude API key is required.");
         }
         const client = this.client(opts.apiKey);
+        const effectivePrompt = opts.jsonSchema
+            ? `Respond only with valid JSON matching this schema: ${JSON.stringify(opts.jsonSchema)}\n\n${opts.prompt}`
+            : opts.prompt;
         const claudeHistory = [
             ...(opts.history ?? []).map((m) => ({
                 role: m.role,
                 content: m.content,
             })),
-            { role: "user", content: opts.prompt },
+            { role: "user", content: effectivePrompt },
         ];
-        if (opts.stream && opts.onToken) {
+        if (opts.stream && opts.onToken && !opts.jsonSchema) {
             const stream = await client.messages.create({
                 model: opts.model,
                 max_tokens: 4096,

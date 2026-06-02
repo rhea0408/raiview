@@ -6,7 +6,6 @@ import type { GitExtension } from "./git.d";
 import {
   getProvider,
   getAllProviders,
-  getOllamaProvider,
   type LLMProvider,
   type ChatMessage,
 } from "./provider";
@@ -82,6 +81,39 @@ interface ReviewChunk {
   prompt: string;
   label: string;
 }
+
+interface ReviewFinding {
+  severity: "Critical" | "Warning" | "Suggestion";
+  category: "Correctness" | "Security" | "Performance" | "Design" | "Readability" | "Error Handling";
+  title: string;
+  description: string;
+}
+
+interface ReviewResponse {
+  findings: ReviewFinding[];
+  rating: "Looks Good" | "Needs Minor Changes" | "Needs Major Revision";
+}
+
+const REVIEW_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          severity: { type: "string", enum: ["Critical", "Warning", "Suggestion"] },
+          category: { type: "string", enum: ["Correctness", "Security", "Performance", "Design", "Readability", "Error Handling"] },
+          title: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["severity", "category", "title", "description"],
+      },
+    },
+    rating: { type: "string", enum: ["Looks Good", "Needs Minor Changes", "Needs Major Revision"] },
+  },
+  required: ["findings", "rating"],
+} as const;
 
 // ---------------------------------------------------------------------------
 // Git review command entry point (registered as VS Code command)
@@ -309,9 +341,7 @@ const DEFAULT_REVIEW_SYSTEM_PROMPT =
   "Only reference files and functions that were explicitly provided. Do NOT invent or assume the existence of other files. " +
   "Review only the code provided across these categories: Correctness, Design, Security, Performance, Readability, and Error Handling. " +
   "IMPORTANT: Distribute findings evenly — aim for 1–2 findings per category. Do NOT focus disproportionately on any single category. " +
-  "Use severity labels: 🔴 Critical, 🟡 Warning, 🔵 Suggestion. " +
-  "End with a summary rating: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision. " +
-  "After writing the summary rating, stop immediately. Do not repeat any finding already stated.";
+  "Do not repeat any finding already stated.";
 
 // ---------------------------------------------------------------------------
 // Side panel
@@ -464,6 +494,24 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
   // Core send method — all AI calls funnel through here
   // -------------------------------------------------------------------------
 
+  private tryParseReview(text: string): ReviewResponse | undefined {
+    // Full parse
+    try { return JSON.parse(text) as ReviewResponse; } catch { /* try recovery */ }
+    // Recovery: truncated JSON — find the last complete finding object and close the structure
+    const lastClose = text.lastIndexOf('"}');
+    if (lastClose === -1) { return undefined; }
+    const truncated = text.slice(0, lastClose + 2);
+    // Find the findings array start
+    const findingsStart = truncated.indexOf('"findings"');
+    if (findingsStart === -1) { return undefined; }
+    const arrayStart = truncated.indexOf('[', findingsStart);
+    if (arrayStart === -1) { return undefined; }
+    try {
+      const partial = JSON.parse(truncated.slice(arrayStart) + ']') as ReviewFinding[];
+      return { findings: partial, rating: "Needs Minor Changes" };
+    } catch { return undefined; }
+  }
+
   private async sendChat(opts: {
     prompt: string;
     displayText: string;
@@ -472,15 +520,18 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     isSystemMessage?: boolean;
     skipExchangeCount?: boolean;
     historyOverride?: ChatMessage[];
-  }): Promise<string> {
+    jsonSchema?: object;
+    displayModel?: string;
+  }): Promise<{ text: string; structured?: ReviewResponse }> {
     const { prompt, displayText, model, webviewView, isSystemMessage, skipExchangeCount } = opts;
+    const attributionModel = opts.displayModel ?? model;
     const provider = getProvider(this.activeProvider);
     if (!provider) {
       webviewView.webview.postMessage({
         type: "chatError",
         message: `Unknown provider: ${this.activeProvider}`,
       });
-      return "";
+      return { text: "" };
     }
 
     const apiKey = await this.getApiKey(this.activeProvider);
@@ -497,6 +548,9 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     const userTimestamp = Date.now();
     const numCtx = this.activeProvider === "ollama"
       ? (vscode.workspace.getConfiguration("raiview").get<number>("ollamaContextWindow") ?? 8192)
+      : undefined;
+    const numPredict = this.activeProvider === "ollama"
+      ? (vscode.workspace.getConfiguration("raiview").get<number>("ollamaNumPredict") ?? 2000)
       : undefined;
 
     this.currentModel = model;
@@ -542,6 +596,8 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
           history,
           signal: abortController.signal,
           numCtx,
+          numPredict,
+          jsonSchema: opts.jsonSchema,
           onToken: (token: string) => {
             accumulated += token;
             if (!parseTimer) {
@@ -562,13 +618,12 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
         });
 
         if (parseTimer) { clearTimeout(parseTimer); }
-        const html = await marked(fullResponse);
-        webviewView.webview.postMessage({
-          type: "streamEnd",
-          html,
-          model,
-          timestamp: Date.now(),
-        });
+        let structured: ReviewResponse | undefined;
+        if (opts.jsonSchema) {
+          structured = this.tryParseReview(fullResponse);
+        }
+        const html = structured ? undefined : await marked(fullResponse);
+        webviewView.webview.postMessage({ type: "streamEnd", html, structured, model: attributionModel, timestamp: Date.now() });
       } else {
         fullResponse = await provider.generate({
           model,
@@ -579,6 +634,8 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
           history,
           signal: abortController.signal,
           numCtx,
+          numPredict,
+          jsonSchema: opts.jsonSchema,
           onUsage: (inputTokens: number, outputTokens: number) => {
             outputChannel.appendLine(
               `[${new Date().toLocaleTimeString()}] ${this.activeProvider} / ${model}` +
@@ -588,13 +645,12 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
             );
           },
         });
-        const html = await marked(fullResponse);
-        webviewView.webview.postMessage({
-          type: "chatMessage",
-          html,
-          model,
-          timestamp: Date.now(),
-        });
+        let structured: ReviewResponse | undefined;
+        if (opts.jsonSchema) {
+          structured = this.tryParseReview(fullResponse);
+        }
+        const html = structured ? undefined : await marked(fullResponse);
+        webviewView.webview.postMessage({ type: "chatMessage", html, structured, model: attributionModel, timestamp: Date.now() });
       }
 
       // Record AI response in history
@@ -621,7 +677,11 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
       // Fire-and-forget background summary after threshold
       this.triggerBackgroundSummary(provider, apiKey);
 
-      return fullResponse;
+      let structured: ReviewResponse | undefined;
+      if (opts.jsonSchema) {
+        try { structured = JSON.parse(fullResponse) as ReviewResponse; } catch { /* fallback */ }
+      }
+      return { text: fullResponse, structured };
 
     } catch (err: any) {
       if (err?.name === "AbortError" || abortController.signal.aborted) {
@@ -635,7 +695,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
           message: `${provider.displayName} error: ${err.message ?? err}`,
         });
       }
-      return "";
+      return { text: "" };
     } finally {
       if (this.activeAbortController === abortController) {
         this.activeAbortController = null;
@@ -818,10 +878,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
 
     const buildGitInstruction = (files: string[]): string => {
       const fileList = files.map(f => `• ${f}`).join("\n");
-      if (this.enhancedReviewer) {
-        return `\n\nReview ALL of the following files/sections:\n${fileList}\n\nCover all categories: Correctness, Security, Performance, Design, Readability, Error Handling. Do NOT echo the diff. Cover every file listed above.`;
-      }
-      return `\n\nReview ALL of the following files/sections present above:\n${fileList}\n\nFor each issue found, use this exact format:\n🔴 Critical / 🟡 Warning / 🔵 Suggestion — **[Short title]**\n[One sentence describing the issue.]\n\nRules: Do NOT describe what the code does. Do NOT echo the diff. Cover every file listed above. End with one of: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision.`;
+      return `\n\nReview ALL of the following files/sections present above:\n${fileList}\n\nReturn a JSON object with exactly these two fields:\n- "findings": array of at most 5 findings (prioritise the most impactful), where each item has severity ("Critical", "Warning", or "Suggestion"), category ("Correctness", "Security", "Performance", "Design", "Readability", or "Error Handling"), title (short string), description (one sentence string)\n- "rating": exactly one of these three strings: "Looks Good", "Needs Minor Changes", "Needs Major Revision"\nCover every file listed. Do NOT echo the diff.`;
     };
 
     // Greedily bin-pack units into chunks
@@ -875,10 +932,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
   ): Promise<ReviewChunk[] | null> {
     const buildFileInstruction = (fileName: string, scope?: string): string => {
       const header = `\n\nReview the code above${scope ? ` (${scope})` : ""} from file: ${fileName}`;
-      if (this.enhancedReviewer) {
-        return `${header}\n\nCover all categories: Correctness, Security, Performance, Design, Readability, Error Handling. Do NOT echo the code.`;
-      }
-      return `${header}\n\nFor each issue found, use this exact format:\n🔴 Critical / 🟡 Warning / 🔵 Suggestion — **[Short title]**\n[One sentence describing the issue.]\n\nRules: Do NOT describe what the code does. Do NOT echo the code. End with one of: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision.`;
+      return `${header}\n\nReturn a JSON object with exactly these two fields:\n- "findings": array of at most 5 findings (prioritise the most impactful), where each item has severity ("Critical", "Warning", or "Suggestion"), category ("Correctness", "Security", "Performance", "Design", "Readability", or "Error Handling"), title (short string), description (one sentence string)\n- "rating": exactly one of these three strings: "Looks Good", "Needs Minor Changes", "Needs Major Revision"\nCover all categories. Do NOT echo the code.`;
     };
 
     if (customInput && customInput.trim()) {
@@ -891,7 +945,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
         }
         const rawChunks = this.splitByLineChunks(result.content);
         let lineOffset = 1;
-        return rawChunks.map((chunk, i) => {
+        return rawChunks.map((chunk) => {
           const startLine = lineOffset;
           const endLine = startLine + chunk.split("\n").length - 1;
           lineOffset = endLine + 1;
@@ -943,7 +997,8 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     chunks: ReviewChunk[],
     model: string,
     webviewView: vscode.WebviewView,
-    singleDisplayText: string
+    singleDisplayText: string,
+    displayModel?: string
   ): Promise<void> {
     this.reviewCancelled = false;  // reset for this review run
 
@@ -966,7 +1021,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
         });
       }
 
-      const response = await this.sendChat({
+      const result = await this.sendChat({
         prompt: chunks[i].prompt,
         displayText: chunks.length > 1
           ? `[Part ${i + 1}/${chunks.length}] ${chunks[i].label}`
@@ -975,8 +1030,10 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
         webviewView,
         isSystemMessage: true,
         historyOverride: [],  // each chunk reviewed in isolation — no cross-chunk contamination
+        jsonSchema: REVIEW_JSON_SCHEMA,
+        displayModel,
       });
-      responses.push(response);
+      responses.push(result.text);
     }
 
     // Combined summary across all chunks — not counted as an exchange
@@ -986,21 +1043,37 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
         text: "— Generating combined summary across all parts —",
       });
 
-      const perChunkBudget = Math.floor(this.maxContentChars / chunks.length);
-      const partsText = responses
-        .map((r, i) => {
-          const capped = r.length > perChunkBudget ? r.slice(0, perChunkBudget) + "…" : r;
-          return `**Part ${i + 1} (${chunks[i].label}):**\n${capped}`;
-        })
-        .join("\n\n");
+      // Collect all structured findings; fall back to text injection if parsing failed
+      const allFindings: ReviewFinding[] = responses.flatMap(r => {
+        try { return (JSON.parse(r) as ReviewResponse).findings ?? []; } catch { return []; }
+      });
+
+      // De-duplicate by title before sending to the model — prevents repeated findings
+      // for functions that appear across multiple files (e.g. encode_scaled)
+      const seenTitles = new Set<string>();
+      const uniqueFindings = allFindings.filter(f => {
+        const key = f.title.toLowerCase().trim();
+        if (seenTitles.has(key)) { return false; }
+        seenTitles.add(key);
+        return true;
+      });
+
+      const ratingInstruction = `Return a JSON object with exactly:\n- "findings": array of at most 8 findings (severity/category/title/description per item). Include findings across all severity levels present in the input — do not omit Critical or Warning items.\n- "rating": exactly one of "Looks Good", "Needs Minor Changes", "Needs Major Revision"`;
+      // Use a compact bullet list instead of full JSON to avoid consuming the model's output budget
+      const findingsSummary = uniqueFindings.length > 0
+        ? uniqueFindings.map(f => `• [${f.severity}/${f.category}] ${f.title}`).join('\n')
+        : responses.map((r, i) => `Part ${i + 1} (${chunks[i].label}):\n${r.slice(0, 500)}`).join('\n\n');
+      const summaryPrompt = `Here are findings from ${chunks.length} parts of the code review:\n${findingsSummary}\n\n${ratingInstruction}`;
 
       await this.sendChat({
-        prompt: `Here are the findings from ${chunks.length} parts of the review:\n\n${partsText}\n\nProvide a concise combined summary. Group findings by category (Correctness, Security, Performance, Design, Readability, Error Handling). Within each category list issues from most to least severe (🔴 Critical first, then 🟡 Warning, then 🔵 Suggestion). Do not repeat individual findings verbatim — summarize and prioritize. End with an overall rating: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision.`,
+        prompt: summaryPrompt,
         displayText: "Combined summary across all parts",
         model,
         webviewView,
         isSystemMessage: true,
         skipExchangeCount: true,
+        jsonSchema: REVIEW_JSON_SCHEMA,
+        displayModel,
       });
     }
   }
@@ -1098,6 +1171,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
 
         case "reviewChanges": {
           if (this.activeAbortController) { break; }
+          const userSelectedGitModel = message.model;
           let model = message.model;
           if (this.enhancedReviewer && this.activeProvider === "ollama") {
             const reviewerName = getReviewerModelName(model);
@@ -1119,13 +1193,15 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
             gitChunks,
             model,
             webviewView,
-            this.exchangeCount === 0 ? "Reviewing git changes..." : "Re-reviewing git changes..."
+            this.exchangeCount === 0 ? "Reviewing git changes..." : "Re-reviewing git changes...",
+            userSelectedGitModel
           );
           break;
         }
 
         case "sendToProvider": {
           if (this.activeAbortController) { break; }
+          const userSelectedFileModel = message.model;
           let model = message.model;
           if (this.enhancedReviewer && this.activeProvider === "ollama") {
             const reviewerName = getReviewerModelName(model);
@@ -1147,7 +1223,8 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
             fileChunks,
             model,
             webviewView,
-            this.exchangeCount === 0 ? "Reviewing active file..." : "Re-reviewing active file..."
+            this.exchangeCount === 0 ? "Reviewing active file..." : "Re-reviewing active file...",
+            userSelectedFileModel
           );
           break;
         }
@@ -1183,10 +1260,14 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
           const session = sessions.find((s) => s.id === message.sessionId);
           if (session) {
             const renderedMessages = await Promise.all(
-              session.messages.map(async (m) => ({
-                ...m,
-                html: m.role === "assistant" ? await marked(m.content) : undefined,
-              }))
+              session.messages.map(async (m) => {
+                if (m.role === "assistant") {
+                  const structured = this.tryParseReview(m.content);
+                  if (structured) { return { ...m, structured }; }
+                  return { ...m, html: await marked(m.content) };
+                }
+                return { ...m };
+              })
             );
             webviewView.webview.postMessage({
               type: "sessionView",
@@ -1228,9 +1309,10 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
           try {
             webviewView.webview.postMessage({ type: "reviewerModelStatus", status: "creating" });
             const numCtx = vscode.workspace.getConfiguration("raiview").get<number>("ollamaContextWindow") ?? 4096;
+            const numPredict = vscode.workspace.getConfiguration("raiview").get<number>("ollamaNumPredict") ?? 2000;
             await createReviewerModel(message.baseModel, ollamaUrl, (progressStatus: string) => {
               webviewView.webview.postMessage({ type: "reviewerModelStatus", status: "progress", message: progressStatus });
-            }, numCtx);
+            }, numCtx, numPredict);
             webviewView.webview.postMessage({ type: "reviewerModelStatus", status: "created" });
             vscode.window.showInformationMessage(`code-reviewer model created from ${message.baseModel}.`);
             await fetchModelsForWebview(this.activeProvider, await this.getApiKey(this.activeProvider), webviewView);
@@ -1484,6 +1566,16 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     .derived-model-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .derived-model-delete { background: none; border: none; color: var(--vscode-descriptionForeground); cursor: pointer; padding: 0 2px; font-size: 13px; line-height: 1; flex-shrink: 0; width: auto; }
     .derived-model-delete:hover { color: var(--vscode-errorForeground); }
+    .finding { padding: 8px 10px; margin-bottom: 6px; border-radius: 5px; border-left: 3px solid transparent; background: var(--vscode-editor-inactiveSelectionBackground); }
+    .finding-critical { border-left-color: #e05252; }
+    .finding-warning  { border-left-color: #d4a800; }
+    .finding-suggestion { border-left-color: #5a9ee6; }
+    .finding-header { display: flex; align-items: center; gap: 6px; }
+    .finding-badge { font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .finding-category { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--vscode-descriptionForeground); }
+    .finding-title { display: block; margin-top: 4px; font-size: 12px; }
+    .finding-desc { margin: 3px 0 0; font-size: 12px; color: var(--vscode-foreground); opacity: 0.9; }
+    .review-rating { margin-top: 10px; font-weight: 600; font-size: 12px; }
   </style>
 </head>
 <body>

@@ -109,6 +109,13 @@
             "32768 tokens — large models only, 32+ GB VRAM"
           ],
           "description": "Context window size (num_ctx) used when creating the enhanced code-reviewer model in Ollama. Applies on next model creation — delete and recreate the reviewer model after changing this."
+        },
+        "raiview.ollamaNumPredict": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 256,
+          "maximum": 8192,
+          "description": "Maximum tokens Ollama generates per response (num_predict). Increase for longer/more detailed reviews; decrease to save VRAM and speed up responses. For the enhanced reviewer model, delete and recreate it after changing this value."
         }
       }
     }

@@ -51,8 +51,6 @@ const CODE_REVIEWER_SYSTEM_PROMPT = "You are an expert Code Reviewer. Your job i
     "Readability, Error Handling, Complexity, and Test Coverage. " +
     "IMPORTANT: Distribute findings evenly — aim for 1–2 findings per category. " +
     "Do NOT over-report Error Handling; treat it with the same weight as every other category. " +
-    "Use severity labels: 🔴 Critical, 🟡 Warning, 🔵 Suggestion. " +
-    "End with a summary rating: ✅ Looks Good, ⚠️ Needs Minor Changes, or 🛑 Needs Major Revision. " +
     "Be concise and actionable.";
 // ---------------------------------------------------------------------------
 // Ollama REST helpers (for model management — not for generation)
@@ -253,7 +251,7 @@ async function reviewerModelExists(ollamaUrl = "http://localhost:11434", baseMod
  * Uses the new API format (v0.5.5+): `from` + `system` instead of `modelfile`.
  * @param baseModel - The Ollama model to build on (e.g. "gemma3:27b")
  */
-async function createReviewerModel(baseModel, ollamaUrl = "http://localhost:11434", onProgress, numCtx = 8192) {
+async function createReviewerModel(baseModel, ollamaUrl = "http://localhost:11434", onProgress, numCtx = 8192, numPredict = 2000) {
     await ollamaStreamRequest("POST", "/api/create", ollamaUrl, {
         model: getReviewerModelName(baseModel),
         from: baseModel,
@@ -262,7 +260,7 @@ async function createReviewerModel(baseModel, ollamaUrl = "http://localhost:1143
             temperature: 0.2,
             repeat_penalty: 1.3,
             num_ctx: numCtx,
-            num_predict: 1500,
+            num_predict: numPredict,
             top_p: 0.9,
         },
         stream: true,

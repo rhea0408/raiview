@@ -328,6 +328,36 @@ document.getElementById('createReviewerBtn').addEventListener('click', () => {
   if (!base) { document.getElementById('reviewerStatus').textContent = '⚠ Select a base model first.'; return; }
   vscode.postMessage({ command: 'createReviewerModel', baseModel: base });
 });
+function renderStructuredReview(data) {
+  const severityEmoji = { Critical: '🔴', Warning: '🟡', Suggestion: '🔵' };
+  const ratingEmoji = { 'Looks Good': '✅', 'Needs Minor Changes': '⚠️', 'Needs Major Revision': '🛑' };
+  const findings = (data.findings || [])
+    .filter(f => f.severity && f.category && f.title && f.description)
+    .map(f => {
+    const sev = f.severity || 'Suggestion';
+    return `<div class="finding finding-${sev.toLowerCase()}">` +
+      `<div class="finding-header">` +
+      `<span class="finding-badge">${severityEmoji[sev] || ''} ${sev}</span>` +
+      `<span class="finding-category">${f.category || ''}</span>` +
+      `</div>` +
+      `<strong class="finding-title">${f.title || ''}</strong>` +
+      `<p class="finding-desc">${f.description || ''}</p>` +
+      `</div>`;
+  }).join('');
+  const ratingRaw = data.rating;
+  let rating = '';
+  if (typeof ratingRaw === 'string') {
+    rating = ratingRaw;
+  } else if (typeof ratingRaw === 'number') {
+    // Model returned a numeric score — map to the nearest label
+    rating = ratingRaw >= 90 ? 'Looks Good' : ratingRaw >= 70 ? 'Needs Minor Changes' : 'Needs Major Revision';
+  } else if (ratingRaw && typeof ratingRaw === 'object') {
+    rating = String(Object.values(ratingRaw)[0] || '');
+  }
+  const ratingLine = rating ? `<div class="review-rating">${ratingEmoji[rating] || ''} ${rating}</div>` : '';
+  return findings + ratingLine;
+}
+
 function renderDerivedModels(models) {
   const list = document.getElementById('derivedModelsList');
   list.innerHTML = '';
@@ -409,7 +439,7 @@ function renderSessionOverlay(session) {
     if (isUser) {
       body.innerHTML = truncateUserContent(m.content);
     } else {
-      body.innerHTML = m.html || escHtml(m.content);
+      body.innerHTML = m.structured ? renderStructuredReview(m.structured) : (m.html || escHtml(m.content));
     }
     const meta = document.createElement('div');
     meta.className = 'bubble-meta';
@@ -520,7 +550,8 @@ window.addEventListener('message', (event) => {
 
     case 'streamEnd':
       if (streamingBubble) {
-        if (msg.html) getBubbleBody(streamingBubble).innerHTML = msg.html;
+        const streamContent = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
+        if (streamContent) getBubbleBody(streamingBubble).innerHTML = streamContent;
         getBubbleMeta(streamingBubble).textContent = (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now());
         streamingBubble = null;
       }
@@ -529,11 +560,13 @@ window.addEventListener('message', (event) => {
 
     case 'chatMessage':
       if (streamingBubble) {
-        getBubbleBody(streamingBubble).innerHTML = msg.html;
+        const chatContent = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
+        getBubbleBody(streamingBubble).innerHTML = chatContent;
         getBubbleMeta(streamingBubble).textContent = (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now());
         streamingBubble = null;
       } else {
-        addAIBubble(msg.html, (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now()), false);
+        const html = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
+        addAIBubble(html, (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now()), false);
       }
       setInputsDisabled(false);
       break;
