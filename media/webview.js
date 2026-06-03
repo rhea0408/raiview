@@ -2,7 +2,6 @@ const vscode = acquireVsCodeApi();
 
 // DOM refs
 const providerSel     = document.getElementById('providerSelect');
-const apiKeyBtn       = document.getElementById('apiKeyBtn');
 const availableSel    = document.getElementById('availableModels');
 const sendBtn         = document.getElementById('sendBtn');
 const reviewBtn       = document.getElementById('reviewBtn');
@@ -39,11 +38,22 @@ const sessionOverlay  = document.getElementById('sessionOverlay');
 const overlayTitle    = document.getElementById('overlayTitle');
 const overlayMessages = document.getElementById('overlayMessages');
 const overlayCloseBtn = document.getElementById('overlayCloseBtn');
-const sysPromptSection = document.getElementById('sysPromptSection');
+const sysPromptSection   = document.getElementById('sysPromptSection');
+const keyProviderSel     = document.getElementById('keyProviderSelect');
+const apiKeyHintEl       = document.getElementById('apiKeyHint');
+const apiKeyStatusEl     = document.getElementById('apiKeyStatus');
+const saveKeyBtn         = document.getElementById('saveKeyBtn');
+const clearKeyBtn        = document.getElementById('clearKeyBtn');
+const ollamaSettingsRow   = document.getElementById('ollamaSettingsRow');
+const ollamaUrlInput      = document.getElementById('ollamaUrlInput');
+const saveOllamaUrlBtn    = document.getElementById('saveOllamaUrlBtn');
+const ollamaPinnedModels  = document.getElementById('ollamaPinnedModels');
+const savePinnedModelsBtn = document.getElementById('savePinnedModelsBtn');
 
 let currentProvider = 'ollama';
 let hasApiKey = false;
 let requiresApiKey = false;
+let providerKeyStatus = {};
 let sessionActive = false;
 let autoUnloadModel = false;
 let streamingBubble = null;
@@ -81,15 +91,27 @@ function populateSelect(selectEl, names, defaultVal) {
   });
 }
 
+function updateApiKeyStatus() {
+  const p = keyProviderSel ? keyProviderSel.value : currentProvider;
+  const has = providerKeyStatus[p] ?? false;
+  if (apiKeyHintEl) {
+    apiKeyHintEl.textContent = p === 'ollama' ? 'Applies to the configured Ollama URL. Leave blank for local Ollama.' : '';
+  }
+  if (apiKeyStatusEl) {
+    apiKeyStatusEl.textContent = has ? 'Key is set.' : 'No key saved.';
+    apiKeyStatusEl.style.color = has ? 'var(--vscode-charts-green)' : 'var(--vscode-descriptionForeground)';
+  }
+  if (clearKeyBtn) { clearKeyBtn.disabled = !has; }
+}
+
 function updateButtons() {
   const canSend = !requiresApiKey || hasApiKey;
   sendBtn.disabled = !canSend;
-  apiKeyBtn.style.display = requiresApiKey ? 'block' : 'none';
-  apiKeyBtn.textContent = hasApiKey ? '🔑 Update API Key' : '🔑 Set API Key';
   enhancedRow.style.display = currentProvider === 'ollama' ? 'flex' : 'none';
   freeMemoryBtn.style.display = (currentProvider === 'ollama' && !autoUnloadModel && !sessionActive) ? 'block' : 'none';
   derivedModelsList.style.display = currentProvider === 'ollama' ? 'block' : 'none';
   if (currentProvider !== 'ollama') reviewerSection.classList.remove('visible');
+  ollamaSettingsRow.style.display = currentProvider === 'ollama' ? 'block' : 'none';
 }
 
 function setInputsDisabled(disabled) {
@@ -227,8 +249,23 @@ providerSel.addEventListener('change', () => {
   vscode.postMessage({ command: 'setProvider', provider: providerSel.value });
 });
 
-// ---- API Key ----
-apiKeyBtn.addEventListener('click', () => vscode.postMessage({ command: 'setApiKey' }));
+// ---- Ollama URL + Pinned Models (settings panel) ----
+saveOllamaUrlBtn.addEventListener('click', () => {
+  vscode.postMessage({ command: 'saveOllamaUrl', url: ollamaUrlInput.value });
+});
+savePinnedModelsBtn.addEventListener('click', () => {
+  const models = ollamaPinnedModels.value.split('\n').map(s => s.trim()).filter(Boolean);
+  vscode.postMessage({ command: 'savePinnedModels', models });
+});
+
+// ---- API Key (settings panel) ----
+if (keyProviderSel) keyProviderSel.addEventListener('change', updateApiKeyStatus);
+if (saveKeyBtn) saveKeyBtn.addEventListener('click', () => {
+  if (keyProviderSel) vscode.postMessage({ command: 'setApiKey', provider: keyProviderSel.value });
+});
+if (clearKeyBtn) clearKeyBtn.addEventListener('click', () => {
+  if (keyProviderSel) vscode.postMessage({ command: 'clearApiKey', provider: keyProviderSel.value });
+});
 
 // ---- Refresh models ----
 refreshBtn.addEventListener('click', () => vscode.postMessage({ command: 'refreshModels' }));
@@ -458,21 +495,28 @@ window.addEventListener('message', (event) => {
 
     case 'init': {
       providerSel.innerHTML = '';
+      keyProviderSel.innerHTML = '';
       msg.providers.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.name; opt.textContent = p.displayName;
         if (p.name === msg.activeProvider) opt.selected = true;
         providerSel.appendChild(opt);
+        const opt2 = opt.cloneNode(true);
+        keyProviderSel.appendChild(opt2);
       });
       currentProvider = msg.activeProvider;
       hasApiKey = msg.hasApiKey;
       requiresApiKey = msg.providers.find(p => p.name === msg.activeProvider)?.requiresApiKey ?? false;
+      providerKeyStatus = msg.providerKeyStatus ?? {};
       autoUnloadModel = msg.autoUnloadModel ?? false;
       streamToggle.checked = msg.streamingMode === 'chunked';
       enhancedToggle.checked = msg.enhancedReviewer;
       if (msg.enhancedReviewer && currentProvider === 'ollama') reviewerSection.classList.add('visible');
       if (msg.systemPrompt) systemPromptEl.value = msg.systemPrompt;
+      if (msg.ollamaUrl) ollamaUrlInput.value = msg.ollamaUrl;
+      ollamaPinnedModels.value = (msg.ollamaModels ?? []).join('\n');
       updateButtons();
+      updateApiKeyStatus();
       break;
     }
 
@@ -493,8 +537,15 @@ window.addEventListener('message', (event) => {
       break;
 
     case 'apiKeySet':
-      hasApiKey = msg.hasApiKey;
-      updateButtons();
+      providerKeyStatus[msg.provider] = true;
+      if (msg.isActiveProvider) { hasApiKey = true; updateButtons(); }
+      updateApiKeyStatus();
+      break;
+
+    case 'apiKeyCleared':
+      providerKeyStatus[msg.provider] = false;
+      if (msg.isActiveProvider) { hasApiKey = false; updateButtons(); }
+      updateApiKeyStatus();
       break;
 
     case 'sessionTriggered':

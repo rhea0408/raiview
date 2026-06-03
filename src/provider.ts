@@ -1,4 +1,5 @@
 import * as http from "http";
+import * as https from "https";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -52,13 +53,17 @@ export class OllamaProvider implements LLMProvider {
   }
 
   private client(): OpenAI {
+    // The OpenAI SDK requires a non-empty apiKey string even for servers that
+    // don't use it. "ollama" is the conventional placeholder for auth-free
+    // Ollama instances. Auth for proxied Ollama setups is handled via explicit
+    // Authorization headers in generate(), which uses raw HTTP directly.
     return new OpenAI({
       baseURL: `${this.baseUrl}/v1/`,
-      apiKey: "ollama", // required by SDK but ignored by Ollama
+      apiKey: "ollama",
     });
   }
 
-  async listModels(): Promise<string[]> {
+  async listModels(_apiKey?: string): Promise<string[]> {
     try {
       const client = this.client();
       const list = await client.models.list();
@@ -96,15 +101,22 @@ export class OllamaProvider implements LLMProvider {
       let settled = false;
       const done = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
 
+      const headers: Record<string, string | number> = {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(bodyStr),
+      };
+      if (opts.apiKey) { headers["Authorization"] = `Bearer ${opts.apiKey}`; }
+
       const reqOptions: http.RequestOptions = {
         hostname: url.hostname,
         port: url.port || (url.protocol === "https:" ? "443" : "80"),
         path: url.pathname,
         method: "POST",
-        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(bodyStr) },
+        headers,
       };
 
-      const req = http.request(reqOptions, (res) => {
+      const transport = url.protocol === "https:" ? https : http;
+      const req = transport.request(reqOptions, (res) => {
         if (res.statusCode && res.statusCode >= 400) {
           const err: Buffer[] = [];
           res.on("data", (c) => err.push(c));

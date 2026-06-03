@@ -116,6 +116,18 @@
           "minimum": 256,
           "maximum": 8192,
           "description": "Maximum tokens Ollama generates per response (num_predict). Increase for longer/more detailed reviews; decrease to save VRAM and speed up responses. For the enhanced reviewer model, delete and recreate it after changing this value."
+        },
+        "raiview.excludeExtensions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "File extensions to exclude from git diff reviews (e.g. [\".vsix\", \".map\", \".lock\"]). Files with these extensions are stripped from both the diff text and the file list."
+        },
+        "raiview.ollamaModels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "When non-empty, overrides the Ollama model list with these model names instead of fetching from the server. Useful for Ollama cloud where the API returns the full public catalog."
         }
       }
     }

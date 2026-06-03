@@ -6,6 +6,7 @@ import type { GitExtension } from "./git.d";
 import {
   getProvider,
   getAllProviders,
+  getOllamaProvider,
   type LLMProvider,
   type ChatMessage,
 } from "./provider";
@@ -305,11 +306,25 @@ function readFileOrFolder(inputPath: string): ReadResult {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+let modelFetchSeq = 0;
+
 async function fetchModelsForWebview(
   providerName: string,
   apiKey: string | undefined,
   webviewView: vscode.WebviewView
 ) {
+  const seq = ++modelFetchSeq;
+  if (providerName === "ollama") {
+    const pinned = vscode.workspace.getConfiguration("raiview").get<string[]>("ollamaModels") ?? [];
+    const ollamaUrl = vscode.workspace.getConfiguration("raiview").get<string>("ollamaUrl") ?? "http://localhost:11434";
+    const isLocal = (() => { try { const h = new URL(ollamaUrl).hostname; return h === "localhost" || h === "127.0.0.1" || h === "::1"; } catch { return true; } })();
+    if (pinned.length > 0 && !isLocal) {
+      if (seq !== modelFetchSeq) { return; }
+      webviewView.webview.postMessage({ type: "models", available: pinned });
+      await sendReviewerModelsForWebview(webviewView);
+      return;
+    }
+  }
   const provider = getProvider(providerName);
   if (!provider) {
     webviewView.webview.postMessage({ type: "error", message: `Unknown provider: ${providerName}` });
@@ -317,8 +332,10 @@ async function fetchModelsForWebview(
   }
   try {
     const models = await provider.listModels(apiKey);
+    if (seq !== modelFetchSeq) { return; }
     webviewView.webview.postMessage({ type: "models", available: models });
   } catch (err: any) {
+    if (seq !== modelFetchSeq) { return; }
     webviewView.webview.postMessage({
       type: "error",
       message: `Could not fetch models for ${provider.displayName}: ${err.message ?? err}`,
@@ -368,6 +385,9 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
   private latestSummary: string | null = null;
   private summaryGenerationId = 0;
 
+  // Webview reference (set when the panel is first opened)
+  private webviewView: vscode.WebviewView | undefined;
+
   constructor(private readonly context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration("raiview");
     this.activeProvider = config.get<string>("defaultProvider") ?? "ollama";
@@ -375,6 +395,15 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     this.streamingMode =
       (config.get<string>("streamingMode") as "chunked" | "complete") ?? "chunked";
     this.enhancedReviewer = config.get<boolean>("enhancedReviewer") ?? false;
+    getOllamaProvider().setBaseUrl(config.get<string>("ollamaUrl") ?? "http://localhost:11434");
+
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration("raiview.ollamaUrl")) {
+        getOllamaProvider().setBaseUrl(
+          vscode.workspace.getConfiguration("raiview").get<string>("ollamaUrl") ?? "http://localhost:11434"
+        );
+      }
+    }, undefined, context.subscriptions);
   }
 
   // -------------------------------------------------------------------------
@@ -814,26 +843,38 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     let diffFiles: string[] = [];
     let untrackedFiles: string[] = [];
 
-    try {
-      untrackedFiles = execSync(`git ls-files --others --exclude-standard`, {
-        cwd: repoPath, encoding: "utf8", stdio: "pipe",
-      }).trim().split("\n").filter(Boolean);
-    } catch { /* ignore */ }
+    const excludeExts = vscode.workspace.getConfiguration("raiview").get<string[]>("excludeExtensions") ?? [];
+    const pathspecExclusions = excludeExts.map(ext => `:(exclude)*${ext.startsWith(".") ? ext : "." + ext}`);
+    const excludeArg = pathspecExclusions.length > 0 ? ` -- . ${pathspecExclusions.map(p => `"${p}"`).join(" ")}` : "";
+    const extFilter = (f: string) => excludeExts.length === 0 || !excludeExts.some(ext => f.endsWith(ext.startsWith(".") ? ext : "." + ext));
 
     try {
-      diffFiles = execSync(`git diff --name-only HEAD`, {
-        cwd: repoPath, encoding: "utf8", stdio: "pipe",
+      untrackedFiles = execSync(`git ls-files --others --exclude-standard`, {
+        cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000,
+      }).trim().split("\n").filter(Boolean).filter(extFilter);
+    } catch (e) {
+      outputChannel.appendLine(`[git] ls-files failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      diffFiles = execSync(`git diff --name-only HEAD${excludeArg}`, {
+        cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000,
       }).trim().split("\n").filter(Boolean);
-      diffText = execSync(`git diff HEAD`, { cwd: repoPath, encoding: "utf8", stdio: "pipe" });
-    } catch {
+      diffText = execSync(`git diff HEAD${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 });
+    } catch (e) {
+      outputChannel.appendLine(`[git] diff HEAD failed, trying staged+unstaged fallback: ${e instanceof Error ? e.message : String(e)}`);
       try {
-        const staged = execSync(`git diff --name-only --cached`, { cwd: repoPath, encoding: "utf8", stdio: "pipe" }).trim().split("\n").filter(Boolean);
-        const unstaged = execSync(`git diff --name-only`, { cwd: repoPath, encoding: "utf8", stdio: "pipe" }).trim().split("\n").filter(Boolean);
+        const staged = execSync(`git diff --name-only --cached${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 }).trim().split("\n").filter(Boolean);
+        const unstaged = execSync(`git diff --name-only${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 }).trim().split("\n").filter(Boolean);
         diffFiles = [...new Set([...staged, ...unstaged])];
-        const d1 = execSync(`git diff --cached`, { cwd: repoPath, encoding: "utf8", stdio: "pipe" });
-        const d2 = execSync(`git diff`, { cwd: repoPath, encoding: "utf8", stdio: "pipe" });
+        const d1 = execSync(`git diff --cached${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 });
+        const d2 = execSync(`git diff${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 });
         diffText = d1 + "\n" + d2;
-      } catch { /* ignore */ }
+      } catch (e2) {
+        outputChannel.appendLine(`[git] staged+unstaged fallback also failed: ${e2 instanceof Error ? e2.message : String(e2)}`);
+        webviewView.webview.postMessage({ type: "chatError", message: "Could not read git diff. Check the Output panel for details." });
+        return null;
+      }
     }
 
     const allFiles = [...new Set([...diffFiles, ...untrackedFiles])];
@@ -1083,6 +1124,7 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
   // -------------------------------------------------------------------------
 
   resolveWebviewView(webviewView: vscode.WebviewView) {
+    this.webviewView = webviewView;
     const mediaUri = vscode.Uri.joinPath(this.context.extensionUri, 'media');
     webviewView.webview.options = { enableScripts: true, localResourceRoots: [mediaUri] };
     const scriptUri = webviewView.webview.asWebviewUri(
@@ -1094,6 +1136,10 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
       switch (message.command) {
         case "ready": {
           const hasKey = !!(await this.getApiKey(this.activeProvider));
+          const providerKeyStatus: Record<string, boolean> = {};
+          for (const p of getAllProviders()) {
+            providerKeyStatus[p.name] = !!(await this.getApiKey(p.name));
+          }
           webviewView.webview.postMessage({
             type: "init",
             providers: getAllProviders().map((p) => ({
@@ -1103,10 +1149,13 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
             })),
             activeProvider: this.activeProvider,
             hasApiKey: hasKey,
+            providerKeyStatus,
             streamingMode: this.streamingMode,
             enhancedReviewer: this.enhancedReviewer,
             systemPrompt: this.systemPrompt,
             autoUnloadModel: vscode.workspace.getConfiguration("raiview").get<boolean>("autoUnloadModel") ?? false,
+            ollamaUrl: vscode.workspace.getConfiguration("raiview").get<string>("ollamaUrl") ?? "http://localhost:11434",
+            ollamaModels: vscode.workspace.getConfiguration("raiview").get<string[]>("ollamaModels") ?? [],
           });
           fetchModelsForWebview(
             this.activeProvider,
@@ -1124,6 +1173,27 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
             await this.getApiKey(this.activeProvider),
             webviewView
           );
+          break;
+        }
+
+        case "saveOllamaUrl": {
+          const newUrl = ((message.url as string) ?? "").trim() || "http://localhost:11434";
+          await vscode.workspace.getConfiguration("raiview").update("ollamaUrl", newUrl, vscode.ConfigurationTarget.Global);
+          getOllamaProvider().setBaseUrl(newUrl);
+          if (this.activeSessionTrigger !== null) {
+            webviewView.webview.postMessage({
+              type: "systemMessage",
+              text: `Ollama URL changed to ${newUrl} mid-session. The full conversation history will be sent to this endpoint.`,
+            });
+          }
+          fetchModelsForWebview("ollama", await this.getApiKey("ollama"), webviewView);
+          break;
+        }
+
+        case "savePinnedModels": {
+          const models = (message.models as string[]).filter(Boolean);
+          await vscode.workspace.getConfiguration("raiview").update("ollamaModels", models, vscode.ConfigurationTarget.Global);
+          fetchModelsForWebview("ollama", await this.getApiKey("ollama"), webviewView);
           break;
         }
 
@@ -1153,19 +1223,30 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
         }
 
         case "setApiKey": {
+          const target = message.provider ?? this.activeProvider;
           const input = await vscode.window.showInputBox({
-            prompt: `Enter your ${getProvider(this.activeProvider)?.displayName ?? this.activeProvider} API key`,
+            prompt: `Enter your ${getProvider(target)?.displayName ?? target} API key`,
             password: true,
             ignoreFocusOut: true,
           });
-          if (input) {
-            await this.setApiKey(this.activeProvider, input);
-            webviewView.webview.postMessage({ type: "apiKeySet", hasApiKey: true });
-            fetchModelsForWebview(this.activeProvider, input, webviewView);
+          if (input && input.trim().length > 5) {
+            await this.setApiKey(target, input.trim());
+            const isActive = target === this.activeProvider;
+            webviewView.webview.postMessage({ type: "apiKeySet", provider: target, hasApiKey: true, isActiveProvider: isActive });
+            if (isActive) { fetchModelsForWebview(this.activeProvider, input, webviewView); }
             vscode.window.showInformationMessage(
-              `${getProvider(this.activeProvider)?.displayName} API key saved securely.`
+              `${getProvider(target)?.displayName} API key saved securely.`
             );
           }
+          break;
+        }
+
+        case "clearApiKey": {
+          const target = message.provider ?? this.activeProvider;
+          await this.context.secrets.delete(`raiview.apiKey.${target}`);
+          const isActive = target === this.activeProvider;
+          webviewView.webview.postMessage({ type: "apiKeyCleared", provider: target, isActiveProvider: isActive });
+          if (isActive) { fetchModelsForWebview(this.activeProvider, undefined, webviewView); }
           break;
         }
 
@@ -1607,6 +1688,32 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
       <div id="reviewerStatus" style="font-size:11px; color:var(--vscode-descriptionForeground);"></div>
     </div>
     <div id="derivedModelsList" class="derived-models-list" style="display:none;"></div>
+    <div id="ollamaSettingsRow" style="display:none;">
+      <hr style="margin:10px 0; border-color:var(--vscode-widget-border);">
+      <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--vscode-descriptionForeground); margin-bottom:6px;">Ollama</div>
+      <div class="row">
+        <label for="ollamaUrlInput">URL</label>
+        <input type="text" id="ollamaUrlInput" placeholder="http://localhost:11434" />
+      </div>
+      <button id="saveOllamaUrlBtn" class="secondary">Save URL</button>
+      <div class="row" style="margin-top:6px;">
+        <label for="ollamaPinnedModels">Pinned Models <span style="font-weight:400; font-size:10px;">(one per line — leave empty to fetch from server)</span></label>
+        <textarea id="ollamaPinnedModels" rows="3" placeholder="qwen3.5:397b-cloud&#10;llama3.3:70b"></textarea>
+      </div>
+      <button id="savePinnedModelsBtn" class="secondary">Save Models</button>
+    </div>
+    <hr style="margin:10px 0; border-color:var(--vscode-widget-border);">
+    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--vscode-descriptionForeground); margin-bottom:6px;">API Keys</div>
+    <div class="row">
+      <label for="keyProviderSelect">Provider</label>
+      <select id="keyProviderSelect"></select>
+    </div>
+    <div id="apiKeyHint" style="font-size:11px; color:var(--vscode-descriptionForeground); margin-bottom:2px;"></div>
+    <div id="apiKeyStatus" style="font-size:11px; margin-bottom:6px;"></div>
+    <div style="display:flex; gap:6px;">
+      <button id="saveKeyBtn" class="secondary" style="flex:1;">Save Key</button>
+      <button id="clearKeyBtn" class="secondary" style="flex:1;">Clear Key</button>
+    </div>
   </div>
 
   <!-- Review buttons -->
@@ -1624,7 +1731,6 @@ class SidePanelProvider implements vscode.WebviewViewProvider {
     </div>
     <div class="provider-body" id="providerBody">
       <select id="providerSelect"><option value="">Loading...</option></select>
-      <button id="apiKeyBtn" style="display:none;" class="secondary">🔑 Set API Key</button>
       <div class="row">
         <label for="availableModels">Model</label>
         <select id="availableModels"><option value="">Detecting...</option></select>

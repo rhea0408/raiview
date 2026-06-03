@@ -41,6 +41,7 @@ exports.getProvider = getProvider;
 exports.getAllProviders = getAllProviders;
 exports.getOllamaProvider = getOllamaProvider;
 const http = __importStar(require("http"));
+const https = __importStar(require("https"));
 const openai_1 = __importDefault(require("openai"));
 const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
 // ---------------------------------------------------------------------------
@@ -58,12 +59,16 @@ class OllamaProvider {
         this.baseUrl = url;
     }
     client() {
+        // The OpenAI SDK requires a non-empty apiKey string even for servers that
+        // don't use it. "ollama" is the conventional placeholder for auth-free
+        // Ollama instances. Auth for proxied Ollama setups is handled via explicit
+        // Authorization headers in generate(), which uses raw HTTP directly.
         return new openai_1.default({
             baseURL: `${this.baseUrl}/v1/`,
-            apiKey: "ollama", // required by SDK but ignored by Ollama
+            apiKey: "ollama",
         });
     }
-    async listModels() {
+    async listModels(_apiKey) {
         try {
             const client = this.client();
             const list = await client.models.list();
@@ -106,14 +111,22 @@ class OllamaProvider {
                 settled = true;
                 fn();
             } };
+            const headers = {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(bodyStr),
+            };
+            if (opts.apiKey) {
+                headers["Authorization"] = `Bearer ${opts.apiKey}`;
+            }
             const reqOptions = {
                 hostname: url.hostname,
                 port: url.port || (url.protocol === "https:" ? "443" : "80"),
                 path: url.pathname,
                 method: "POST",
-                headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(bodyStr) },
+                headers,
             };
-            const req = http.request(reqOptions, (res) => {
+            const transport = url.protocol === "https:" ? https : http;
+            const req = transport.request(reqOptions, (res) => {
                 if (res.statusCode && res.statusCode >= 400) {
                     const err = [];
                     res.on("data", (c) => err.push(c));
