@@ -17,3 +17,7 @@ yarn-error.log*
 # VSCode settings
 .vscode/
 .vscodeignore
+
+# Ignore built files
+CLAUDE.md
+*.vsix
