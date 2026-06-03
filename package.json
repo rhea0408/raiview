@@ -26,7 +26,7 @@
         {
           "id": "raiview",
           "title": "Raiview",
-          "icon": "$(zap)"
+          "icon": "media/icon.svg"
         }
       ]
     },

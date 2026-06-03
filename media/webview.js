@@ -1,74 +1,95 @@
 const vscode = acquireVsCodeApi();
 
-// DOM refs
-const providerSel     = document.getElementById('providerSelect');
-const availableSel    = document.getElementById('availableModels');
-const sendBtn         = document.getElementById('sendBtn');
-const reviewBtn       = document.getElementById('reviewBtn');
-const refreshBtn      = document.getElementById('refreshBtn');
-const freeMemoryBtn   = document.getElementById('freeMemoryBtn');
-const settingsBtn     = document.getElementById('settingsBtn');
-const settingsPanel   = document.getElementById('settingsPanel');
-const streamToggle    = document.getElementById('streamToggle');
-const enhancedRow     = document.getElementById('enhancedRow');
-const enhancedToggle  = document.getElementById('enhancedToggle');
-const reviewerSection = document.getElementById('reviewerSection');
+// ---- Theme sync ----
+function syncTheme() {
+  const cl = document.body.classList;
+  document.documentElement.dataset.theme =
+    cl.contains('vscode-dark') || cl.contains('vscode-high-contrast') ? 'dark' : 'light';
+}
+syncTheme();
+new MutationObserver(syncTheme).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+// ---- DOM refs ----
+const providerSel       = document.getElementById('providerSelect');
+const availableSel      = document.getElementById('availableModels');
+const sendBtn           = document.getElementById('sendBtn');
+const reviewBtn         = document.getElementById('reviewBtn');
+const refreshBtn        = document.getElementById('refreshBtn');
+const freeMemoryBtn     = document.getElementById('freeMemoryBtn');
+const settingsBtn       = document.getElementById('settingsBtn');
+const settingsPanel     = document.getElementById('settingsPanel');
+const streamSwitch      = document.getElementById('streamSwitch');
+const enhancedRow       = document.getElementById('enhancedRow');
+const enhancedSwitch    = document.getElementById('enhancedSwitch');
+const reviewerSection   = document.getElementById('reviewerSection');
 const derivedModelsList = document.getElementById('derivedModelsList');
-const baseModelSel    = document.getElementById('baseModelSelect');
-const sysPromptHeader = document.getElementById('sysPromptHeader');
-const systemPromptEl  = document.getElementById('systemPrompt');
-const providerHeader  = document.getElementById('providerHeader');
-const providerBody    = document.getElementById('providerBody');
-const chatMessages    = document.getElementById('chatMessages');
-const chatEmpty       = document.getElementById('chatEmpty');
-const limitBar        = document.getElementById('limitBar');
-const limitText       = document.getElementById('limitText');
-const limitFill       = document.getElementById('limitFill');
-const limitWarning    = document.getElementById('limitWarning');
-const followupArea    = document.getElementById('followupArea');
-const followupInput   = document.getElementById('followupInput');
-const followupSend    = document.getElementById('followupSend');
-const newSessionBtn   = document.getElementById('newSessionBtn');
-const historyHeader   = document.getElementById('historyHeader');
-const historyPanel    = document.getElementById('historyPanel');
-const historyEmpty    = document.getElementById('historyEmpty');
-const historyActions  = document.getElementById('historyActions');
-const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-const sessionOverlay  = document.getElementById('sessionOverlay');
-const overlayTitle    = document.getElementById('overlayTitle');
-const overlayMessages = document.getElementById('overlayMessages');
-const overlayCloseBtn = document.getElementById('overlayCloseBtn');
-const sysPromptSection   = document.getElementById('sysPromptSection');
-const keyProviderSel     = document.getElementById('keyProviderSelect');
-const apiKeyHintEl       = document.getElementById('apiKeyHint');
-const apiKeyStatusEl     = document.getElementById('apiKeyStatus');
-const saveKeyBtn         = document.getElementById('saveKeyBtn');
-const clearKeyBtn        = document.getElementById('clearKeyBtn');
-const ollamaSettingsRow   = document.getElementById('ollamaSettingsRow');
-const ollamaUrlInput      = document.getElementById('ollamaUrlInput');
-const saveOllamaUrlBtn    = document.getElementById('saveOllamaUrlBtn');
-const ollamaPinnedModels  = document.getElementById('ollamaPinnedModels');
+const baseModelSel      = document.getElementById('baseModelSelect');
+const sysPromptHeader   = document.getElementById('sysPromptHeader');
+const sysPromptCollapsible = document.getElementById('sysPromptCollapsible');
+const sysPromptTag      = document.getElementById('sysPromptTag');
+const systemPromptEl    = document.getElementById('systemPrompt');
+const providerHeader    = document.getElementById('providerHeader');
+const providerCollapsible = document.getElementById('providerCollapsible');
+const chatMessages      = document.getElementById('chatMessages');
+const chatEmpty         = document.getElementById('chatEmpty');
+const limitBar          = document.getElementById('limitBar');
+const limitText         = document.getElementById('limitText');
+const limitFill         = document.getElementById('limitFill');
+const limitWarning      = document.getElementById('limitWarning');
+const followupArea      = document.getElementById('followupArea');
+const followupInput     = document.getElementById('followupInput');
+const followupSend      = document.getElementById('followupSend');
+const newSessionBtn     = document.getElementById('newSessionBtn');
+const historyHeader     = document.getElementById('historyHeader');
+const historyCollapsible = document.getElementById('historyCollapsible');
+const historyPanel      = document.getElementById('historyPanel');
+const historyEmpty      = document.getElementById('historyEmpty');
+const historyActions    = document.getElementById('historyActions');
+const historyCount      = document.getElementById('historyCount');
+const clearHistoryBtn   = document.getElementById('clearHistoryBtn');
+const sessionOverlay    = document.getElementById('sessionOverlay');
+const overlayTitle      = document.getElementById('overlayTitle');
+const overlayMessages   = document.getElementById('overlayMessages');
+const overlayCloseBtn   = document.getElementById('overlayCloseBtn');
+const sysPromptSection  = document.getElementById('sysPromptSection');
+const keyProviderSel    = document.getElementById('keyProviderSelect');
+const apiKeyHintEl      = document.getElementById('apiKeyHint');
+const apiKeyStatusEl    = document.getElementById('apiKeyStatus');
+const apiKeyInput       = document.getElementById('apiKeyInput');
+const saveKeyBtn        = document.getElementById('saveKeyBtn');
+const clearKeyBtn       = document.getElementById('clearKeyBtn');
+const ollamaSettingsRow  = document.getElementById('ollamaSettingsRow');
+const ollamaUrlInput     = document.getElementById('ollamaUrlInput');
+const saveOllamaUrlBtn   = document.getElementById('saveOllamaUrlBtn');
+const ollamaPinnedModels = document.getElementById('ollamaPinnedModels');
 const savePinnedModelsBtn = document.getElementById('savePinnedModelsBtn');
 
+// ---- State ----
 let currentProvider = 'ollama';
 let hasApiKey = false;
 let requiresApiKey = false;
 let providerKeyStatus = {};
 let sessionActive = false;
 let autoUnloadModel = false;
-let streamingBubble = null;
+let streamingBubble = null;   // holds the streaming container div
 let followupWasVisible = false;
 let followupShownThisGeneration = false;
 let generationWasStopped = false;
 let userScrolledUp = false;
+let streamingEnabled = true;
+let enhancedEnabled = false;
 
-// ---- Auto-scroll (skipped when user has scrolled up) ----
+// Parts tracking for multi-part reviews
+let streamingPartsTotal = 0;
+let streamingPartCurrent = 0;
+
+// ---- Auto-scroll ----
 function scrollToBottom() {
   if (!userScrolledUp) chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 chatMessages.addEventListener('scroll', () => {
-  const distanceFromBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight;
-  userScrolledUp = distanceFromBottom > 50;
+  const dist = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight;
+  userScrolledUp = dist > 50;
 });
 
 // ---- Utility ----
@@ -91,49 +112,6 @@ function populateSelect(selectEl, names, defaultVal) {
   });
 }
 
-function updateApiKeyStatus() {
-  const p = keyProviderSel ? keyProviderSel.value : currentProvider;
-  const has = providerKeyStatus[p] ?? false;
-  if (apiKeyHintEl) {
-    apiKeyHintEl.textContent = p === 'ollama' ? 'Applies to the configured Ollama URL. Leave blank for local Ollama.' : '';
-  }
-  if (apiKeyStatusEl) {
-    apiKeyStatusEl.textContent = has ? 'Key is set.' : 'No key saved.';
-    apiKeyStatusEl.style.color = has ? 'var(--vscode-charts-green)' : 'var(--vscode-descriptionForeground)';
-  }
-  if (clearKeyBtn) { clearKeyBtn.disabled = !has; }
-}
-
-function updateButtons() {
-  const canSend = !requiresApiKey || hasApiKey;
-  sendBtn.disabled = !canSend;
-  enhancedRow.style.display = currentProvider === 'ollama' ? 'flex' : 'none';
-  freeMemoryBtn.style.display = (currentProvider === 'ollama' && !autoUnloadModel && !sessionActive) ? 'block' : 'none';
-  derivedModelsList.style.display = currentProvider === 'ollama' ? 'block' : 'none';
-  if (currentProvider !== 'ollama') reviewerSection.classList.remove('visible');
-  ollamaSettingsRow.style.display = currentProvider === 'ollama' ? 'block' : 'none';
-}
-
-function setInputsDisabled(disabled) {
-  followupInput.disabled = disabled;
-  followupSend.disabled = disabled;
-}
-
-// ---- Chat bubble builders ----
-function createBubble(role, bodyHtml, meta) {
-  const wrap = document.createElement('div');
-  wrap.className = 'bubble ' + role;
-  const metaEl = document.createElement('div');
-  metaEl.className = 'bubble-meta';
-  metaEl.textContent = meta;
-  const body = document.createElement('div');
-  body.className = 'bubble-body';
-  body.innerHTML = bodyHtml;
-  if (role === 'user') { wrap.appendChild(metaEl); wrap.appendChild(body); }
-  else { wrap.appendChild(body); wrap.appendChild(metaEl); }
-  return wrap;
-}
-
 function escHtml(str) {
   return String(str)
     .split('&').join('&amp;')
@@ -142,166 +120,462 @@ function escHtml(str) {
     .split('\n').join('<br>');
 }
 
+function updateApiKeyStatus() {
+  const p = keyProviderSel ? keyProviderSel.value : currentProvider;
+  const has = providerKeyStatus[p] ?? false;
+  if (apiKeyHintEl) {
+    apiKeyHintEl.textContent = p === 'ollama'
+      ? 'Applies to the configured Ollama URL. Leave blank for local Ollama.' : '';
+  }
+  if (apiKeyStatusEl) {
+    apiKeyStatusEl.textContent = has ? '● Key is set.' : 'No key saved.';
+    apiKeyStatusEl.className = 'key-status' + (has ? ' set' : '');
+  }
+  if (clearKeyBtn) clearKeyBtn.disabled = !has;
+}
+
+function updateButtons() {
+  const canSend = !requiresApiKey || hasApiKey;
+  sendBtn.disabled = !canSend;
+  enhancedRow.style.display = currentProvider === 'ollama' ? 'flex' : 'none';
+  freeMemoryBtn.style.display =
+    (currentProvider === 'ollama' && !autoUnloadModel && !sessionActive) ? 'grid' : 'none';
+  derivedModelsList.style.display = currentProvider === 'ollama' ? 'block' : 'none';
+  ollamaSettingsRow.style.display = currentProvider === 'ollama' ? 'block' : 'none';
+  if (currentProvider !== 'ollama') reviewerSection.classList.remove('visible');
+}
+
+function setInputsDisabled(disabled) {
+  followupInput.disabled = disabled;
+  followupSend.disabled = disabled;
+}
+
+// ---- Collapsible section helpers ----
+function openSection(headEl, collEl) {
+  headEl.classList.add('open');
+  collEl.classList.add('open');
+}
+function closeSection(headEl, collEl) {
+  headEl.classList.remove('open');
+  collEl.classList.remove('open');
+}
+function toggleSection(headEl, collEl) {
+  const isOpen = headEl.classList.toggle('open');
+  collEl.classList.toggle('open', isOpen);
+  return isOpen;
+}
+
+// ---- Chat area helpers ----
+function clearChatMessages() {
+  chatMessages.innerHTML = '';
+  chatMessages.appendChild(chatEmpty);
+  chatEmpty.style.display = '';
+}
+
+function hideChatEmpty() {
+  chatEmpty.style.display = 'none';
+}
+
+function appendToChat(el) {
+  hideChatEmpty();
+  chatMessages.appendChild(el);
+  scrollToBottom();
+}
+
+// ---- New message wrappers ----
 function addUserBubble(text, timestamp) {
-  if (chatEmpty) chatEmpty.style.display = 'none';
-  const bubble = createBubble('user', escHtml(text), 'You · ' + formatTime(timestamp || Date.now()));
-  chatMessages.appendChild(bubble);
+  const el = document.createElement('div');
+  el.className = 'user-msg';
+  el.innerHTML = escHtml(text);
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-body';
+  wrap.style.gap = '0';
+  wrap.appendChild(el);
+  // user bubbles sit inside a chat-body wrapper for consistent padding
+  const container = document.createElement('div');
+  container.className = 'chat-body';
+  container.appendChild(el);
+  appendToChat(container);
+}
+
+function addAssistantMessage(html, meta) {
+  const container = document.createElement('div');
+  container.className = 'chat-body';
+  const msg = document.createElement('div');
+  msg.className = 'assistant-msg';
+  msg.innerHTML = html;
+  container.appendChild(msg);
+  if (meta) {
+    const foot = document.createElement('div');
+    foot.className = 'msg-foot';
+    const m = document.createElement('span');
+    m.className = 'm';
+    // split "model · time" — accent on model part
+    const parts = meta.split(' · ');
+    m.textContent = parts[0] || meta;
+    foot.appendChild(m);
+    if (parts.length > 1) {
+      foot.appendChild(document.createTextNode(' · ' + parts.slice(1).join(' · ')));
+    }
+    container.appendChild(foot);
+  }
+  appendToChat(container);
+  return container;
+}
+
+function addSystemNote(text) {
+  const el = document.createElement('div');
+  el.className = 'system-note';
+  el.textContent = text;
+  appendToChat(el);
+}
+
+function addErrorMessage(text) {
+  const el = document.createElement('div');
+  el.className = 'error-msg';
+  el.textContent = '⚠ ' + text;
+  const container = document.createElement('div');
+  container.className = 'chat-body';
+  container.appendChild(el);
+  appendToChat(container);
+}
+
+// ---- Streaming state ----
+function createStreamingContainer() {
+  const container = document.createElement('div');
+  container.className = 'chat-body';
+  container.id = 'streamingContainer';
+
+  const metaEl = document.createElement('div');
+  metaEl.className = 'stream-meta';
+  metaEl.id = 'streamingMeta';
+  metaEl.style.display = 'none';
+  container.appendChild(metaEl);
+
+  const partsEl = document.createElement('div');
+  partsEl.className = 'parts';
+  partsEl.id = 'streamingParts';
+  partsEl.style.display = 'none';
+  container.appendChild(partsEl);
+
+  const partInfoEl = document.createElement('div');
+  partInfoEl.className = 'stream-meta';
+  partInfoEl.id = 'streamingPartInfo';
+  partInfoEl.style.display = 'none';
+  container.appendChild(partInfoEl);
+
+  const contentEl = document.createElement('div');
+  contentEl.id = 'streamingContent';
+  contentEl.innerHTML =
+    '<div class="thinking"><span class="cur"></span>' +
+    '<span class="lab">Thinking<span class="dots"></span></span></div>';
+  container.appendChild(contentEl);
+
+  return container;
+}
+
+function updateStreamingParts(total, current) {
+  const partsEl = document.getElementById('streamingParts');
+  const metaEl  = document.getElementById('streamingMeta');
+  if (!partsEl || !metaEl) return;
+  partsEl.style.display = 'flex';
+  metaEl.style.display  = 'block';
+  partsEl.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const seg = document.createElement('i');
+    if (i < current - 1)      seg.className = 'done';
+    else if (i === current - 1) seg.className = 'cur';
+    partsEl.appendChild(seg);
+  }
+}
+
+function updateStreamingPartInfo(text) {
+  const el = document.getElementById('streamingPartInfo');
+  if (!el) return;
+  // "— Part X of N: filename —"
+  const match = text.match(/Part (\d+) of (\d+)(?::\s*(.+?))?(?:\s*—\s*)?$/);
+  if (match) {
+    const partNum = parseInt(match[1], 10);
+    const partTotal = parseInt(match[2], 10);
+    const filename = (match[3] || '').replace(/\s*—\s*$/, '').trim();
+    el.style.display = 'block';
+    el.innerHTML =
+      '— Part <b>' + partNum + '</b> of <b>' + partTotal + '</b> —' +
+      (filename ? '<br><span class="file">' + escHtml(filename) + '</span>' : '');
+    updateStreamingParts(partTotal, partNum);
+    streamingPartCurrent = partNum;
+    streamingPartsTotal  = partTotal;
+  } else {
+    el.style.display = 'block';
+    el.textContent = text;
+  }
+}
+
+// ---- Structured review rendering ----
+const SEV_MAP = {
+  'critical': 'crit',
+  'warning':  'warn',
+  'suggestion': 'info',
+  'info':     'info',
+  'ok':       'ok',
+  'passed':   'ok',
+};
+const SEV_LABEL = {
+  'crit': 'Critical',
+  'warn': 'Warning',
+  'info': 'Suggestion',
+  'ok':   'Passed',
+};
+const RATING_SEV = {
+  'Looks Good':          'ok',
+  'Needs Minor Changes': 'warn',
+  'Needs Major Revision':'crit',
+};
+const RATING_ICON = {
+  ok:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>',
+  crit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+};
+
+function renderStructuredReview(data) {
+  // Group findings by category, assign section numbers
+  const findings = (data.findings || []).filter(f => f.severity && f.description);
+  const categories = [];
+  const catMap = {};
+  findings.forEach(f => {
+    const cat = f.category || 'General';
+    if (!catMap[cat]) {
+      catMap[cat] = [];
+      categories.push(cat);
+    }
+    catMap[cat].push(f);
+  });
+
+  let html = '<div class="review">';
+
+  categories.forEach((cat, idx) => {
+    const num = String(idx + 1).padStart(2, '0');
+    html += '<div><h4><span class="num">' + num + '</span>' + escHtml(cat) + '</h4>';
+    html += '<div class="findings">';
+    catMap[cat].forEach(f => {
+      const sevKey = (f.severity || 'info').toLowerCase();
+      const sev = SEV_MAP[sevKey] || 'info';
+      const label = SEV_LABEL[sev] || f.severity;
+      const desc = f.title
+        ? '<strong>' + escHtml(f.title) + '</strong> ' + escHtml(f.description || '')
+        : escHtml(f.description || '');
+      html +=
+        '<div class="finding ' + sev + '">' +
+        '<span class="chip"><span class="d"></span>' + label + '</span>' +
+        '<span class="tx">' + desc + '</span>' +
+        '</div>';
+    });
+    html += '</div></div>';
+  });
+
+  // Rating
+  const ratingRaw = data.rating;
+  let ratingStr = '';
+  if (typeof ratingRaw === 'string') {
+    ratingStr = ratingRaw;
+  } else if (typeof ratingRaw === 'number') {
+    ratingStr = ratingRaw >= 90 ? 'Looks Good'
+              : ratingRaw >= 70 ? 'Needs Minor Changes'
+              : 'Needs Major Revision';
+  } else if (ratingRaw && typeof ratingRaw === 'object') {
+    ratingStr = String(Object.values(ratingRaw)[0] || '');
+  }
+  if (ratingStr) {
+    const sevClass = RATING_SEV[ratingStr] || 'warn';
+    const icon = RATING_ICON[sevClass] || RATING_ICON.warn;
+    html +=
+      '<div class="summary ' + sevClass + '">' +
+      '<div class="ic-w">' + icon + '</div>' +
+      '<div class="st">' +
+      '<div class="l1">Summary Rating</div>' +
+      '<div class="l2">' + escHtml(ratingStr) + '</div>' +
+      '</div></div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function finalizeStreamingBubble(html, meta) {
+  const container = document.getElementById('streamingContainer');
+  if (!container) return;
+  container.id = '';
+  container.innerHTML = html;
+  if (meta) {
+    const foot = document.createElement('div');
+    foot.className = 'msg-foot';
+    const parts = meta.split(' · ');
+    const m = document.createElement('span');
+    m.className = 'm';
+    m.textContent = parts[0] || meta;
+    foot.appendChild(m);
+    if (parts.length > 1) {
+      foot.appendChild(document.createTextNode(' · ' + parts.slice(1).join(' · ')));
+    }
+    container.appendChild(foot);
+  }
+  streamingBubble = null;
   scrollToBottom();
 }
 
-function addAIBubble(html, meta, isStreaming) {
-  if (chatEmpty) chatEmpty.style.display = 'none';
-  const bodyHtml = isStreaming ? '<span class="spinner"></span> Thinking...' : html;
-  const bubble = createBubble('ai', bodyHtml, meta || '');
-  chatMessages.appendChild(bubble);
-  scrollToBottom();
-  return bubble;
+// ---- Derived models list ----
+function renderDerivedModels(models) {
+  derivedModelsList.innerHTML = '';
+  if (!models || models.length === 0) { derivedModelsList.style.display = 'none'; return; }
+  derivedModelsList.style.display = 'block';
+  models.forEach(name => {
+    const item = document.createElement('div');
+    item.className = 'derived-model-item';
+    const label = document.createElement('span');
+    label.textContent = name;
+    const btn = document.createElement('button');
+    btn.className = 'derived-model-delete';
+    btn.title = 'Delete model';
+    btn.textContent = '✕';
+    btn.addEventListener('click', () => {
+      vscode.postMessage({ command: 'deleteReviewerModelByName', modelName: name });
+    });
+    item.appendChild(label);
+    item.appendChild(btn);
+    derivedModelsList.appendChild(item);
+  });
 }
 
-function addSystemBubble(text) {
-  if (chatEmpty) chatEmpty.style.display = 'none';
-  const bubble = createBubble('system', escHtml(text), '');
-  chatMessages.appendChild(bubble);
-  scrollToBottom();
+// ---- Session viewer ----
+function truncateUserContent(content) {
+  if (content.startsWith('Review the following git diff')) return '<em>📋 Git Changes Review</em>';
+  if (content.startsWith('Review the following file') || content.startsWith('Review the following code'))
+    return '<em>📋 File Review</em>';
+  const MAX = 300;
+  if (content.length <= MAX) return escHtml(content);
+  const preview = content.slice(0, MAX);
+  const remaining = content.slice(MAX).split('\n').length;
+  return escHtml(preview) + '<span style="color:var(--text-faint);font-style:italic;"> … [' + remaining + ' more lines]</span>';
 }
 
-function addErrorBubble(message) {
-  if (chatEmpty) chatEmpty.style.display = 'none';
-  const bubble = createBubble('error', '⚠ ' + escHtml(message), '');
-  chatMessages.appendChild(bubble);
-  scrollToBottom();
+function renderSessionOverlay(session) {
+  overlayTitle.textContent = session.title || 'Session transcript';
+  overlayMessages.innerHTML = '';
+  session.messages.forEach(m => {
+    const isUser = m.role === 'user';
+    if (isUser) {
+      const el = document.createElement('div');
+      el.className = 'user-msg fade';
+      el.style.marginBottom = '10px';
+      el.innerHTML = truncateUserContent(m.content);
+      overlayMessages.appendChild(el);
+    } else {
+      const wrap = document.createElement('div');
+      wrap.className = 'fade';
+      wrap.style.marginBottom = '10px';
+      const msg = document.createElement('div');
+      msg.className = 'assistant-msg';
+      msg.innerHTML = m.structured ? renderStructuredReview(m.structured) : (m.html || escHtml(m.content));
+      wrap.appendChild(msg);
+      const foot = document.createElement('div');
+      foot.className = 'msg-foot';
+      const mEl = document.createElement('span');
+      mEl.className = 'm';
+      mEl.textContent = m.model || session.model || 'AI';
+      foot.appendChild(mEl);
+      foot.appendChild(document.createTextNode(' · ' + formatTime(m.timestamp)));
+      wrap.appendChild(foot);
+      overlayMessages.appendChild(wrap);
+    }
+  });
+  sessionOverlay.classList.add('visible');
+  sessionOverlay.scrollIntoView({ block: 'nearest' });
 }
 
-function getBubbleBody(bubble) {
-  return bubble.querySelector('.bubble-body');
-}
-function getBubbleMeta(bubble) {
-  return bubble.querySelector('.bubble-meta');
+// ---- History sessions ----
+function ratingToSev(ratingStr) {
+  if (!ratingStr) return '--text-faint';
+  if (ratingStr === 'Looks Good') return '--sev-ok';
+  if (ratingStr === 'Needs Major Revision') return '--sev-crit';
+  return '--sev-warn';
 }
 
-// ---- Session trigger ----
+function renderHistory(sessions) {
+  historyPanel.querySelectorAll('.sess').forEach(el => el.remove());
+  if (!sessions || sessions.length === 0) {
+    historyEmpty.style.display = 'block';
+    historyActions.style.display = 'none';
+    historyCount.style.display = 'none';
+    return;
+  }
+  historyEmpty.style.display = 'none';
+  historyActions.style.display = 'flex';
+  historyCount.textContent = String(sessions.length);
+  historyCount.style.display = '';
+
+  const chevSvg =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="arrow"><path d="M9 6l6 6-6 6"/></svg>';
+
+  sessions.forEach(session => {
+    const date = new Date(session.startedAt).toLocaleString([], {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+    const card = document.createElement('div');
+    card.className = 'sess';
+    const sevVar = ratingToSev(session.rating);
+    card.innerHTML =
+      '<span class="tag-diff">```diff</span>' +
+      '<div class="meta">' +
+        '<div class="l1">' + escHtml(date) + '</div>' +
+        '<div class="l2">' + escHtml(session.provider || 'ollama') + ' · ' + (session.exchangeCount || 0) + ' exchanges</div>' +
+      '</div>' +
+      '<span class="rate" style="background:var(' + sevVar + ')"></span>' +
+      chevSvg;
+    card.addEventListener('click', () => {
+      vscode.postMessage({ command: 'loadSession', sessionId: session.id });
+    });
+    historyPanel.appendChild(card);
+  });
+}
+
+// ---- Session trigger (review started) ----
 function onSessionTriggered(trigger) {
   sessionActive = true;
-  sysPromptSection.style.display = 'none';
+  closeSection(providerHeader, providerCollapsible);
   freeMemoryBtn.style.display = 'none';
-  providerHeader.classList.remove('open');
-  providerBody.style.display = 'none';
-  if (trigger === 'git') { sendBtn.style.display = 'none'; }
-  else { reviewBtn.style.display = 'none'; }
+  if (trigger === 'git') {
+    sendBtn.classList.add('hidden-btn');
+    reviewBtn.classList.remove('hidden-btn');
+  } else {
+    reviewBtn.classList.add('hidden-btn');
+    sendBtn.classList.remove('hidden-btn');
+  }
   newSessionBtn.classList.add('visible');
 }
 
 // ---- Exchange limit ----
 function updateExchangeBar(count, limit, warn) {
-  limitBar.classList.remove('hidden');
+  limitBar.style.display = 'flex';
   limitText.textContent = count + ' / ' + limit;
   const pct = Math.min(100, Math.round((count / limit) * 100));
   limitFill.style.width = pct + '%';
-  limitFill.className = 'limit-fill' + (count >= limit ? ' danger' : count >= warn ? ' warn' : '');
+  limitFill.className = count >= limit ? 'danger' : count >= warn ? 'warn' : '';
   if (count >= limit) {
     limitWarning.textContent = 'Session limit reached. Start a new session to continue.';
     limitWarning.classList.add('visible');
     setInputsDisabled(true);
     followupSend.style.display = 'none';
-    newSessionBtn.textContent = 'Start new session (limit reached)';
+    newSessionBtn.textContent = '↺ Start new session (limit reached)';
   } else if (count >= warn) {
-    limitWarning.textContent = 'Approaching session limit (' + count + '/' + limit + ' exchanges). Consider starting a new session soon.';
+    limitWarning.textContent =
+      'Approaching session limit (' + count + '/' + limit + ' exchanges). Consider starting a new session soon.';
     limitWarning.classList.add('visible');
   } else {
     limitWarning.classList.remove('visible');
   }
 }
 
-// ---- Settings gear ----
-settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('open'));
-
-// ---- Streaming toggle ----
-streamToggle.addEventListener('change', () => {
-  vscode.postMessage({ command: 'toggleStreaming', mode: streamToggle.checked ? 'chunked' : 'complete' });
-});
-
-// ---- Enhanced reviewer toggle ----
-enhancedToggle.addEventListener('change', () => {
-  const on = enhancedToggle.checked;
-  vscode.postMessage({ command: 'toggleEnhancedReviewer', enabled: on });
-  reviewerSection.classList.toggle('visible', on);
-});
-
-// ---- System prompt ----
-// Provider section starts expanded
-providerHeader.classList.add('open');
-providerBody.style.display = 'flex';
-providerHeader.addEventListener('click', () => {
-  const isOpen = providerHeader.classList.toggle('open');
-  providerBody.style.display = isOpen ? 'flex' : 'none';
-});
-
-sysPromptHeader.addEventListener('click', () => {
-  const isOpen = sysPromptHeader.classList.toggle('open');
-  systemPromptEl.style.display = isOpen ? 'block' : 'none';
-});
-systemPromptEl.addEventListener('input', () => {
-  vscode.postMessage({ command: 'setSystemPrompt', prompt: systemPromptEl.value });
-});
-
-// ---- Provider change ----
-providerSel.addEventListener('change', () => {
-  vscode.postMessage({ command: 'setProvider', provider: providerSel.value });
-});
-
-// ---- Ollama URL + Pinned Models (settings panel) ----
-saveOllamaUrlBtn.addEventListener('click', () => {
-  vscode.postMessage({ command: 'saveOllamaUrl', url: ollamaUrlInput.value });
-});
-savePinnedModelsBtn.addEventListener('click', () => {
-  const models = ollamaPinnedModels.value.split('\n').map(s => s.trim()).filter(Boolean);
-  vscode.postMessage({ command: 'savePinnedModels', models });
-});
-
-// ---- API Key (settings panel) ----
-if (keyProviderSel) keyProviderSel.addEventListener('change', updateApiKeyStatus);
-if (saveKeyBtn) saveKeyBtn.addEventListener('click', () => {
-  if (keyProviderSel) vscode.postMessage({ command: 'setApiKey', provider: keyProviderSel.value });
-});
-if (clearKeyBtn) clearKeyBtn.addEventListener('click', () => {
-  if (keyProviderSel) vscode.postMessage({ command: 'clearApiKey', provider: keyProviderSel.value });
-});
-
-// ---- Refresh models ----
-refreshBtn.addEventListener('click', () => vscode.postMessage({ command: 'refreshModels' }));
-freeMemoryBtn.addEventListener('click', () => vscode.postMessage({ command: 'freeMemory' }));
-
-// ---- Review Git Changes ----
-reviewBtn.addEventListener('click', () => {
-  const model = availableSel.value || '';
-  if (!model) { addErrorBubble('No model selected.'); return; }
-  reviewBtn.disabled = true;
-  sendBtn.disabled = true;
-  const additionalPrompt = systemPromptEl.value.trim();
-  if (additionalPrompt) addUserBubble(additionalPrompt, Date.now());
-  vscode.postMessage({ command: 'reviewChanges', model });
-});
-
-// ---- Send for Review (active file) ----
-sendBtn.addEventListener('click', () => {
-  const model = availableSel.value || '';
-  if (!model) { addErrorBubble('No model selected.'); return; }
-  reviewBtn.disabled = true;
-  sendBtn.disabled = true;
-  const additionalPrompt = systemPromptEl.value.trim();
-  if (additionalPrompt) addUserBubble(additionalPrompt, Date.now());
-  vscode.postMessage({ command: 'sendToProvider', model, customInput: '' });
-});
-
-// ---- Re-enable whichever review button is still visible (for re-review during active session) ----
-function enableVisibleReviewBtn() {
-  if (sessionActive) {
-    if (reviewBtn.style.display !== 'none') reviewBtn.disabled = false;
-    if (sendBtn.style.display !== 'none') updateButtons();
-  }
-}
-
-// ---- Follow-up send / stop ----
+// ---- Follow-up: stop mode ----
 function enterStopMode() {
   followupWasVisible = followupArea.classList.contains('visible');
   followupShownThisGeneration = false;
@@ -320,6 +594,7 @@ function enterStopMode() {
 function exitStopMode() {
   followupSend.textContent = 'Send';
   followupSend.classList.remove('stop');
+  followupSend.style.display = '';
   followupInput.disabled = false;
   if (!followupWasVisible && !followupShownThisGeneration && !generationWasStopped) {
     followupArea.classList.remove('visible');
@@ -338,6 +613,109 @@ function sendFollowup() {
   setInputsDisabled(true);
   vscode.postMessage({ command: 'followUp', content, model });
 }
+
+function enableVisibleReviewBtn() {
+  if (sessionActive) {
+    if (!reviewBtn.classList.contains('hidden-btn')) reviewBtn.disabled = false;
+    if (!sendBtn.classList.contains('hidden-btn'))   updateButtons();
+  }
+}
+
+// ---- Settings: switch toggles ----
+streamSwitch.addEventListener('click', () => {
+  streamingEnabled = !streamingEnabled;
+  streamSwitch.classList.toggle('on', streamingEnabled);
+  vscode.postMessage({ command: 'toggleStreaming', mode: streamingEnabled ? 'chunked' : 'complete' });
+});
+
+enhancedSwitch.addEventListener('click', () => {
+  enhancedEnabled = !enhancedEnabled;
+  enhancedSwitch.classList.toggle('on', enhancedEnabled);
+  vscode.postMessage({ command: 'toggleEnhancedReviewer', enabled: enhancedEnabled });
+  reviewerSection.classList.toggle('visible', enhancedEnabled && currentProvider === 'ollama');
+});
+
+// ---- Settings gear ----
+settingsBtn.addEventListener('click', () => {
+  const isOpen = settingsPanel.classList.toggle('open');
+  settingsBtn.classList.toggle('on', isOpen);
+});
+
+// ---- Provider section collapsible ----
+providerHeader.addEventListener('click', () => {
+  toggleSection(providerHeader, providerCollapsible);
+});
+
+// ---- System prompt collapsible ----
+sysPromptHeader.addEventListener('click', () => {
+  toggleSection(sysPromptHeader, sysPromptCollapsible);
+});
+systemPromptEl.addEventListener('input', () => {
+  const hasPrompt = systemPromptEl.value.trim().length > 0;
+  sysPromptTag.style.display = hasPrompt ? '' : 'none';
+  vscode.postMessage({ command: 'setSystemPrompt', prompt: systemPromptEl.value });
+});
+
+// ---- History collapsible ----
+historyHeader.addEventListener('click', () => {
+  toggleSection(historyHeader, historyCollapsible);
+});
+
+// ---- Provider change ----
+providerSel.addEventListener('change', () => {
+  vscode.postMessage({ command: 'setProvider', provider: providerSel.value });
+});
+
+// ---- Ollama URL + Pinned Models ----
+saveOllamaUrlBtn.addEventListener('click', () => {
+  vscode.postMessage({ command: 'saveOllamaUrl', url: ollamaUrlInput.value });
+});
+savePinnedModelsBtn.addEventListener('click', () => {
+  const models = ollamaPinnedModels.value.split('\n').map(s => s.trim()).filter(Boolean);
+  vscode.postMessage({ command: 'savePinnedModels', models });
+});
+
+// ---- API Key ----
+if (keyProviderSel) keyProviderSel.addEventListener('change', updateApiKeyStatus);
+if (saveKeyBtn) saveKeyBtn.addEventListener('click', () => {
+  const key = apiKeyInput ? apiKeyInput.value.trim() : '';
+  if (keyProviderSel) vscode.postMessage({ command: 'setApiKey', provider: keyProviderSel.value, key });
+});
+if (clearKeyBtn) clearKeyBtn.addEventListener('click', () => {
+  if (keyProviderSel) vscode.postMessage({ command: 'clearApiKey', provider: keyProviderSel.value });
+});
+
+// ---- Refresh / Free memory ----
+refreshBtn.addEventListener('click', () => {
+  refreshBtn.classList.add('spin');
+  vscode.postMessage({ command: 'refreshModels' });
+  setTimeout(() => refreshBtn.classList.remove('spin'), 1000);
+});
+freeMemoryBtn.addEventListener('click', () => vscode.postMessage({ command: 'freeMemory' }));
+
+// ---- Review Git Changes ----
+reviewBtn.addEventListener('click', () => {
+  const model = availableSel.value || '';
+  if (!model) { addErrorMessage('No model selected.'); return; }
+  reviewBtn.disabled = true;
+  sendBtn.disabled = true;
+  const additionalPrompt = systemPromptEl.value.trim();
+  if (additionalPrompt) addUserBubble(additionalPrompt, Date.now());
+  vscode.postMessage({ command: 'reviewChanges', model });
+});
+
+// ---- Send for Review ----
+sendBtn.addEventListener('click', () => {
+  const model = availableSel.value || '';
+  if (!model) { addErrorMessage('No model selected.'); return; }
+  reviewBtn.disabled = true;
+  sendBtn.disabled = true;
+  const additionalPrompt = systemPromptEl.value.trim();
+  if (additionalPrompt) addUserBubble(additionalPrompt, Date.now());
+  vscode.postMessage({ command: 'sendToProvider', model, customInput: '' });
+});
+
+// ---- Follow-up ----
 followupSend.addEventListener('click', sendFollowup);
 followupInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFollowup(); }
@@ -348,145 +726,25 @@ newSessionBtn.addEventListener('click', () => {
   vscode.postMessage({ command: 'newSession' });
 });
 
-// ---- History panel toggle ----
-historyHeader.addEventListener('click', () => {
-  const isOpen = historyHeader.classList.toggle('open');
-  historyPanel.classList.toggle('open', isOpen);
-});
-
 // ---- Clear history ----
 clearHistoryBtn.addEventListener('click', () => {
   vscode.postMessage({ command: 'clearHistory' });
 });
 
-// ---- Reviewer model ----
-document.getElementById('createReviewerBtn').addEventListener('click', () => {
-  const base = baseModelSel.value;
-  if (!base) { document.getElementById('reviewerStatus').textContent = '⚠ Select a base model first.'; return; }
-  vscode.postMessage({ command: 'createReviewerModel', baseModel: base });
-});
-function renderStructuredReview(data) {
-  const severityEmoji = { Critical: '🔴', Warning: '🟡', Suggestion: '🔵' };
-  const ratingEmoji = { 'Looks Good': '✅', 'Needs Minor Changes': '⚠️', 'Needs Major Revision': '🛑' };
-  const findings = (data.findings || [])
-    .filter(f => f.severity && f.category && f.title && f.description)
-    .map(f => {
-    const sev = f.severity || 'Suggestion';
-    return `<div class="finding finding-${sev.toLowerCase()}">` +
-      `<div class="finding-header">` +
-      `<span class="finding-badge">${severityEmoji[sev] || ''} ${sev}</span>` +
-      `<span class="finding-category">${f.category || ''}</span>` +
-      `</div>` +
-      `<strong class="finding-title">${f.title || ''}</strong>` +
-      `<p class="finding-desc">${f.description || ''}</p>` +
-      `</div>`;
-  }).join('');
-  const ratingRaw = data.rating;
-  let rating = '';
-  if (typeof ratingRaw === 'string') {
-    rating = ratingRaw;
-  } else if (typeof ratingRaw === 'number') {
-    // Model returned a numeric score — map to the nearest label
-    rating = ratingRaw >= 90 ? 'Looks Good' : ratingRaw >= 70 ? 'Needs Minor Changes' : 'Needs Major Revision';
-  } else if (ratingRaw && typeof ratingRaw === 'object') {
-    rating = String(Object.values(ratingRaw)[0] || '');
-  }
-  const ratingLine = rating ? `<div class="review-rating">${ratingEmoji[rating] || ''} ${rating}</div>` : '';
-  return findings + ratingLine;
-}
-
-function renderDerivedModels(models) {
-  const list = document.getElementById('derivedModelsList');
-  list.innerHTML = '';
-  models.forEach(name => {
-    const item = document.createElement('div');
-    item.className = 'derived-model-item';
-    const label = document.createElement('span');
-    label.textContent = name;
-    const btn = document.createElement('button');
-    btn.className = 'derived-model-delete';
-    btn.title = 'Delete model';
-    btn.textContent = '✕';
-    btn.addEventListener('click', () => {
-      vscode.postMessage({ command: 'deleteReviewerModelByName', modelName: name });
-    });
-    item.appendChild(label);
-    item.appendChild(btn);
-    list.appendChild(item);
-  });
-}
-
-// ---- Overlay close ----
+// ---- Session overlay close ----
 overlayCloseBtn.addEventListener('click', () => {
   sessionOverlay.classList.remove('visible');
 });
 
-
-// ---- Render history sessions ----
-function renderHistory(sessions) {
-  historyPanel.querySelectorAll('.history-card').forEach(el => el.remove());
-  if (!sessions || sessions.length === 0) {
-    historyEmpty.style.display = 'block';
-    historyActions.style.display = 'none';
+// ---- Reviewer model ----
+document.getElementById('createReviewerBtn').addEventListener('click', () => {
+  const base = baseModelSel.value;
+  if (!base) {
+    document.getElementById('reviewerStatus').textContent = '⚠ Select a base model first.';
     return;
   }
-  historyEmpty.style.display = 'none';
-  historyActions.style.display = 'flex';
-  sessions.forEach(session => {
-    const card = document.createElement('div');
-    card.className = 'history-card';
-    const date = new Date(session.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const titleEl = document.createElement('div');
-    titleEl.className = 'hc-title';
-    titleEl.textContent = session.title || 'Review session';
-    const metaEl = document.createElement('div');
-    metaEl.className = 'hc-meta';
-    metaEl.textContent = date + ' · ' + session.provider + ' · ' + session.exchangeCount + ' exchanges';
-    card.appendChild(titleEl);
-    card.appendChild(metaEl);
-    card.addEventListener('click', () => {
-      vscode.postMessage({ command: 'loadSession', sessionId: session.id });
-    });
-    historyPanel.insertBefore(card, historyActions);
-  });
-}
-
-// ---- Render session overlay ----
-function truncateUserContent(content) {
-  // Review trigger messages — show a clean label, never the raw diff/file content
-  if (content.startsWith('Review the following git diff')) return '<em>📋 Git Changes Review</em>';
-  if (content.startsWith('Review the following file') || content.startsWith('Review the following code')) return '<em>📋 File Review</em>';
-  const MAX = 300;
-  if (content.length <= MAX) return escHtml(content);
-  const preview = content.slice(0, MAX);
-  const remaining = content.slice(MAX).split('\n').length;
-  return escHtml(preview) + `<span class="prompt-truncated"> … [${remaining} more lines]</span>`;
-}
-
-function renderSessionOverlay(session) {
-  overlayTitle.textContent = session.title || 'Past Session';
-  overlayMessages.innerHTML = '';
-  session.messages.forEach(m => {
-    const isUser = m.role === 'user';
-    const wrap = document.createElement('div');
-    wrap.className = 'bubble ' + (isUser ? 'user' : 'ai');
-    wrap.style.marginBottom = '8px';
-    const body = document.createElement('div');
-    body.className = 'bubble-body';
-    if (isUser) {
-      body.innerHTML = truncateUserContent(m.content);
-    } else {
-      body.innerHTML = m.structured ? renderStructuredReview(m.structured) : (m.html || escHtml(m.content));
-    }
-    const meta = document.createElement('div');
-    meta.className = 'bubble-meta';
-    meta.textContent = (isUser ? 'You' : (m.model || session.model || 'AI')) + ' · ' + formatTime(m.timestamp);
-    if (isUser) { wrap.appendChild(meta); wrap.appendChild(body); }
-    else { wrap.appendChild(body); wrap.appendChild(meta); }
-    overlayMessages.appendChild(wrap);
-  });
-  sessionOverlay.classList.add('visible');
-}
+  vscode.postMessage({ command: 'createReviewerModel', baseModel: base });
+});
 
 // ---- Messages from extension host ----
 window.addEventListener('message', (event) => {
@@ -501,18 +759,22 @@ window.addEventListener('message', (event) => {
         opt.value = p.name; opt.textContent = p.displayName;
         if (p.name === msg.activeProvider) opt.selected = true;
         providerSel.appendChild(opt);
-        const opt2 = opt.cloneNode(true);
-        keyProviderSel.appendChild(opt2);
+        keyProviderSel.appendChild(opt.cloneNode(true));
       });
-      currentProvider = msg.activeProvider;
-      hasApiKey = msg.hasApiKey;
-      requiresApiKey = msg.providers.find(p => p.name === msg.activeProvider)?.requiresApiKey ?? false;
-      providerKeyStatus = msg.providerKeyStatus ?? {};
-      autoUnloadModel = msg.autoUnloadModel ?? false;
-      streamToggle.checked = msg.streamingMode === 'chunked';
-      enhancedToggle.checked = msg.enhancedReviewer;
-      if (msg.enhancedReviewer && currentProvider === 'ollama') reviewerSection.classList.add('visible');
-      if (msg.systemPrompt) systemPromptEl.value = msg.systemPrompt;
+      currentProvider     = msg.activeProvider;
+      hasApiKey           = msg.hasApiKey;
+      requiresApiKey      = msg.providers.find(p => p.name === msg.activeProvider)?.requiresApiKey ?? false;
+      providerKeyStatus   = msg.providerKeyStatus ?? {};
+      autoUnloadModel     = msg.autoUnloadModel ?? false;
+      streamingEnabled    = msg.streamingMode === 'chunked';
+      enhancedEnabled     = msg.enhancedReviewer;
+      streamSwitch.classList.toggle('on', streamingEnabled);
+      enhancedSwitch.classList.toggle('on', enhancedEnabled);
+      if (enhancedEnabled && currentProvider === 'ollama') reviewerSection.classList.add('visible');
+      if (msg.systemPrompt) {
+        systemPromptEl.value = msg.systemPrompt;
+        sysPromptTag.style.display = '';
+      }
       if (msg.ollamaUrl) ollamaUrlInput.value = msg.ollamaUrl;
       ollamaPinnedModels.value = (msg.ollamaModels ?? []).join('\n');
       updateButtons();
@@ -531,14 +793,15 @@ window.addEventListener('message', (event) => {
 
     case 'providerChanged':
       currentProvider = msg.provider;
-      hasApiKey = msg.hasApiKey;
-      requiresApiKey = msg.requiresApiKey;
+      hasApiKey       = msg.hasApiKey;
+      requiresApiKey  = msg.requiresApiKey;
       updateButtons();
       break;
 
     case 'apiKeySet':
       providerKeyStatus[msg.provider] = true;
       if (msg.isActiveProvider) { hasApiKey = true; updateButtons(); }
+      if (apiKeyInput) apiKeyInput.value = '';
       updateApiKeyStatus();
       break;
 
@@ -556,9 +819,38 @@ window.addEventListener('message', (event) => {
       addUserBubble(msg.text, msg.timestamp);
       break;
 
-    case 'systemMessage':
-      addSystemBubble(msg.text);
+    case 'systemMessage': {
+      const text = msg.text || '';
+      // Parts info — intercept and route to streaming state
+      if (streamingBubble) {
+        if (text.includes('Content split into')) {
+          const m = text.match(/Content split into (\d+) parts/);
+          if (m) {
+            const total = parseInt(m[1], 10);
+            streamingPartsTotal = total;
+            streamingPartCurrent = 0;
+            const metaEl = document.getElementById('streamingMeta');
+            if (metaEl) {
+              metaEl.style.display = 'block';
+              metaEl.innerHTML = 'Content split into <b>' + total + '</b> parts. Reviewing each part in sequence…';
+            }
+            updateStreamingParts(total, 0);
+          }
+          break;
+        }
+        if (text.startsWith('— Part')) {
+          updateStreamingPartInfo(text);
+          break;
+        }
+        if (text.includes('Generating combined summary')) {
+          const partInfoEl = document.getElementById('streamingPartInfo');
+          if (partInfoEl) { partInfoEl.style.display = 'block'; partInfoEl.textContent = text; }
+          break;
+        }
+      }
+      addSystemNote(text);
       break;
+    }
 
     case 'generationStarted':
       enterStopMode();
@@ -573,11 +865,14 @@ window.addEventListener('message', (event) => {
       if (!followupSend.classList.contains('stop')) break;
       generationWasStopped = true;
       exitStopMode();
-      if (streamingBubble) {
-        getBubbleBody(streamingBubble).innerHTML = '';
-        getBubbleMeta(streamingBubble).textContent = 'Stopped';
-        streamingBubble = null;
+      // Replace streaming container with a stopped note
+      const stoppedContainer = document.getElementById('streamingContainer');
+      if (stoppedContainer) {
+        stoppedContainer.id = '';
+        stoppedContainer.innerHTML =
+          '<div class="system-note" style="padding:8px 0">Generation stopped.</div>';
       }
+      streamingBubble = null;
       setInputsDisabled(false);
       followupArea.classList.add('visible');
       followupInput.focus();
@@ -585,58 +880,62 @@ window.addEventListener('message', (event) => {
       break;
 
     case 'aiThinking':
-      streamingBubble = addAIBubble('', '', true);
+      streamingBubble = createStreamingContainer();
+      appendToChat(streamingBubble);
+      streamingPartsTotal  = 0;
+      streamingPartCurrent = 0;
       break;
 
     case 'streamStart':
-      if (!streamingBubble) streamingBubble = addAIBubble('', '', true);
+      if (!streamingBubble) {
+        streamingBubble = createStreamingContainer();
+        appendToChat(streamingBubble);
+      }
       break;
 
     case 'streamUpdate':
       if (streamingBubble && msg.html) {
-        getBubbleBody(streamingBubble).innerHTML = msg.html;
+        const contentEl = document.getElementById('streamingContent');
+        if (contentEl) contentEl.innerHTML = '<div class="assistant-msg">' + msg.html + '</div>';
         scrollToBottom();
       }
       break;
 
-    case 'streamEnd':
+    case 'streamEnd': {
+      const content = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
+      const meta = (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now());
       if (streamingBubble) {
-        const streamContent = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
-        if (streamContent) getBubbleBody(streamingBubble).innerHTML = streamContent;
-        getBubbleMeta(streamingBubble).textContent = (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now());
-        streamingBubble = null;
+        finalizeStreamingBubble(content, meta);
       }
       setInputsDisabled(false);
       break;
+    }
 
-    case 'chatMessage':
+    case 'chatMessage': {
+      const content = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
+      const meta = (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now());
       if (streamingBubble) {
-        const chatContent = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
-        getBubbleBody(streamingBubble).innerHTML = chatContent;
-        getBubbleMeta(streamingBubble).textContent = (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now());
-        streamingBubble = null;
+        finalizeStreamingBubble(content, meta);
       } else {
-        const html = msg.structured ? renderStructuredReview(msg.structured) : (msg.html || '');
-        addAIBubble(html, (msg.model || 'AI') + ' · ' + formatTime(msg.timestamp || Date.now()), false);
+        addAssistantMessage(content, meta);
       }
       setInputsDisabled(false);
       break;
+    }
 
-    case 'chatError':
-      if (streamingBubble) {
-        streamingBubble.className = 'bubble error';
-        getBubbleBody(streamingBubble).textContent = '⚠ ' + msg.message;
-        getBubbleMeta(streamingBubble).textContent = '';
-        streamingBubble = null;
+    case 'chatError': {
+      const stContainer = document.getElementById('streamingContainer');
+      if (stContainer) {
+        stContainer.id = '';
+        stContainer.innerHTML = '<div class="error-msg">⚠ ' + escHtml(msg.message) + '</div>';
       } else {
-        addErrorBubble(msg.message);
+        addErrorMessage(msg.message);
       }
+      streamingBubble = null;
       setInputsDisabled(false);
-      if (!sessionActive) {
-        reviewBtn.disabled = false;
-        updateButtons();
-      }
+      if (!sessionActive) { reviewBtn.disabled = false; updateButtons(); }
       break;
+    }
 
     case 'showFollowup':
       followupShownThisGeneration = true;
@@ -651,29 +950,28 @@ window.addEventListener('message', (event) => {
       break;
 
     case 'newSessionStarted':
-      chatMessages.innerHTML = '';
-      chatEmpty.style.display = 'block';
-      chatMessages.appendChild(chatEmpty);
+      clearChatMessages();
       followupArea.classList.remove('visible');
       newSessionBtn.classList.remove('visible');
-      newSessionBtn.textContent = 'Start new session';
-      limitBar.classList.add('hidden');
+      newSessionBtn.textContent = '↺ Start new session';
+      limitBar.style.display = 'none';
       limitWarning.classList.remove('visible');
       followupSend.style.display = '';
       sessionActive = false;
       streamingBubble = null;
       userScrolledUp = false;
+      streamingPartsTotal = 0;
+      streamingPartCurrent = 0;
       exitStopMode();
-      reviewBtn.style.display = '';
+      reviewBtn.classList.remove('hidden-btn');
       reviewBtn.disabled = false;
-      sendBtn.style.display = '';
-      sysPromptSection.style.display = '';
-      sysPromptHeader.classList.remove('open');
-      systemPromptEl.style.display = 'none';
+      sendBtn.classList.remove('hidden-btn');
+      openSection(providerHeader, providerCollapsible);
+      // reset system prompt
+      closeSection(sysPromptHeader, sysPromptCollapsible);
       systemPromptEl.value = '';
+      sysPromptTag.style.display = 'none';
       vscode.postMessage({ command: 'setSystemPrompt', prompt: '' });
-      providerHeader.classList.add('open');
-      providerBody.style.display = 'flex';
       updateButtons();
       break;
 
@@ -688,16 +986,17 @@ window.addEventListener('message', (event) => {
     case 'reviewerModelStatus': {
       const statusEl = document.getElementById('reviewerStatus');
       const createBtn = document.getElementById('createReviewerBtn');
-      if (msg.status === 'creating') { statusEl.textContent = '⏳ Creating code-reviewer model...'; createBtn.disabled = true; }
+      if (msg.status === 'creating')  { statusEl.textContent = '⏳ Creating code-reviewer model...'; createBtn.disabled = true; }
       else if (msg.status === 'progress') { statusEl.textContent = '⏳ ' + msg.message; }
-      else if (msg.status === 'created') { statusEl.textContent = '✅ ' + (msg.model || 'code-reviewer') + ' ready.'; createBtn.disabled = false; }
-      else if (msg.status === 'error') { statusEl.textContent = '⚠ ' + msg.message; createBtn.disabled = false; }
+      else if (msg.status === 'created')  { statusEl.textContent = '✅ ' + (msg.model || 'code-reviewer') + ' ready.'; createBtn.disabled = false; }
+      else if (msg.status === 'error')    { statusEl.textContent = '⚠ ' + msg.message; createBtn.disabled = false; }
       break;
     }
 
     case 'selectModel': {
       for (let i = 0; i < availableSel.options.length; i++) {
-        if (availableSel.options[i].value === msg.model || availableSel.options[i].value.startsWith(msg.model + ':')) {
+        if (availableSel.options[i].value === msg.model ||
+            availableSel.options[i].value.startsWith(msg.model + ':')) {
           availableSel.selectedIndex = i; break;
         }
       }
