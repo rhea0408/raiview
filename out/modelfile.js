@@ -216,7 +216,7 @@ function getReviewerModelName(baseModel) {
         basePart = tag === "latest" ? name : `${name}-${tag}`;
     }
     const sanitized = basePart.replace(/[^a-zA-Z0-9._-]/g, "-");
-    return `code-reviewer${sanitized}:latest`;
+    return `code-reviewer-${sanitized}:latest`;
 }
 /** List all derived code-reviewer-* models currently in Ollama. */
 async function listReviewerModels(ollamaUrl = "http://localhost:11434") {
@@ -270,16 +270,13 @@ async function createReviewerModel(baseModel, ollamaUrl = "http://localhost:1143
  * Unload a model from Ollama's memory by sending keep_alive=0.
  * Frees VRAM/RAM immediately without deleting the model from disk.
  */
-async function unloadOllamaModel(modelName, ollamaUrl = "http://localhost:11434") {
-    try {
-        await ollamaRequest("POST", "/api/generate", ollamaUrl, {
-            model: modelName,
-            keep_alive: 0,
-        }, 5000);
-    }
-    catch {
-        // Unload is best-effort — don't surface errors to the user
-    }
+async function unloadOllamaModel(modelName, ollamaUrl = "http://localhost:11434", log) {
+    log?.(`[unloadOllamaModel] POST ${ollamaUrl}/api/generate keep_alive:0 model:"${modelName}"`);
+    await ollamaRequest("POST", "/api/generate", ollamaUrl, {
+        model: modelName,
+        keep_alive: 0,
+    }, 5000);
+    log?.(`[unloadOllamaModel] request resolved`);
 }
 /** Delete the reviewer model from Ollama. Pass either baseModel (name is derived) or modelName (used directly). */
 async function deleteReviewerModel(ollamaUrl = "http://localhost:11434", baseModel, modelName) {

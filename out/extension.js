@@ -455,13 +455,23 @@ class SidePanelProvider {
         });
         await this.context.globalState.update("raiview.chatSessions", sessions.slice(0, 5));
     }
-    async startNewSession(webviewView) {
+    async startNewSession(webviewView, fallbackModel) {
         this.reviewCancelled = true; // halt any running chunked review loop
+        if (this.activeAbortController) {
+            this.activeAbortController.abort();
+            this.activeAbortController = null;
+        }
         await this.saveCurrentSession();
         const config = vscode.workspace.getConfiguration("raiview");
-        if (this.activeProvider === "ollama" && this.currentModel && config.get("autoUnloadModel")) {
+        const modelToUnload = this.currentModel || fallbackModel || "";
+        if (this.activeProvider === "ollama" && modelToUnload && config.get("autoUnloadModel")) {
             const ollamaUrl = config.get("ollamaUrl") ?? "http://localhost:11434";
-            await (0, modelfile_1.unloadOllamaModel)(this.currentModel, ollamaUrl);
+            try {
+                await (0, modelfile_1.unloadOllamaModel)(modelToUnload, ollamaUrl, (msg) => outputChannel.appendLine(msg));
+            }
+            catch (err) {
+                outputChannel.appendLine(`[unload] auto-unload failed: ${err.message ?? err}`);
+            }
         }
         this.chatHistory = [];
         this.exchangeCount = 0;
@@ -773,31 +783,40 @@ class SidePanelProvider {
         let diffFiles = [];
         let untrackedFiles = [];
         const excludeExts = vscode.workspace.getConfiguration("raiview").get("excludeExtensions") ?? [];
-        const pathspecExclusions = excludeExts.map(ext => `:(exclude)*${ext.startsWith(".") ? ext : "." + ext}`);
-        const excludeArg = pathspecExclusions.length > 0 ? ` -- . ${pathspecExclusions.map(p => `"${p}"`).join(" ")}` : "";
-        const extFilter = (f) => excludeExts.length === 0 || !excludeExts.some(ext => f.endsWith(ext.startsWith(".") ? ext : "." + ext));
+        const extFilter = (f) => excludeExts.length === 0 || !excludeExts.some(ext => {
+            if (ext.includes("*")) {
+                // glob: * matches within a path segment, ** matches across segments
+                const re = new RegExp("^" + ext
+                    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+                    .replace(/\*\*/g, "\x00")
+                    .replace(/\*/g, "[^/]*")
+                    .replace(/\x00/g, ".*") + "$");
+                return re.test(f);
+            }
+            const normalised = ext.startsWith(".") ? ext : "." + ext;
+            return f === ext || f.endsWith("/" + ext) || f.endsWith(normalised);
+        });
+        const gitOpts = { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 };
         try {
-            untrackedFiles = (0, child_process_1.execSync)(`git ls-files --others --exclude-standard`, {
-                cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000,
-            }).trim().split("\n").filter(Boolean).filter(extFilter);
+            untrackedFiles = (0, child_process_1.execFileSync)("git", ["ls-files", "--others", "--exclude-standard"], gitOpts)
+                .trim().split("\n").filter(Boolean).filter(extFilter);
         }
         catch (e) {
             outputChannel.appendLine(`[git] ls-files failed: ${e instanceof Error ? e.message : String(e)}`);
         }
         try {
-            diffFiles = (0, child_process_1.execSync)(`git diff --name-only HEAD${excludeArg}`, {
-                cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000,
-            }).trim().split("\n").filter(Boolean);
-            diffText = (0, child_process_1.execSync)(`git diff HEAD${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 });
+            diffFiles = (0, child_process_1.execFileSync)("git", ["diff", "--name-only", "HEAD"], gitOpts)
+                .trim().split("\n").filter(Boolean).filter(extFilter);
+            diffText = (0, child_process_1.execFileSync)("git", ["diff", "HEAD"], gitOpts);
         }
         catch (e) {
             outputChannel.appendLine(`[git] diff HEAD failed, trying staged+unstaged fallback: ${e instanceof Error ? e.message : String(e)}`);
             try {
-                const staged = (0, child_process_1.execSync)(`git diff --name-only --cached${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 }).trim().split("\n").filter(Boolean);
-                const unstaged = (0, child_process_1.execSync)(`git diff --name-only${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 }).trim().split("\n").filter(Boolean);
-                diffFiles = [...new Set([...staged, ...unstaged])];
-                const d1 = (0, child_process_1.execSync)(`git diff --cached${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 });
-                const d2 = (0, child_process_1.execSync)(`git diff${excludeArg}`, { cwd: repoPath, encoding: "utf8", stdio: "pipe", timeout: 10000 });
+                const staged = (0, child_process_1.execFileSync)("git", ["diff", "--name-only", "--cached"], gitOpts).trim().split("\n").filter(Boolean);
+                const unstaged = (0, child_process_1.execFileSync)("git", ["diff", "--name-only"], gitOpts).trim().split("\n").filter(Boolean);
+                diffFiles = [...new Set([...staged, ...unstaged])].filter(extFilter);
+                const d1 = (0, child_process_1.execFileSync)("git", ["diff", "--cached"], gitOpts);
+                const d2 = (0, child_process_1.execFileSync)("git", ["diff"], gitOpts);
                 diffText = d1 + "\n" + d2;
             }
             catch (e2) {
@@ -820,6 +839,9 @@ class SidePanelProvider {
                 // Extract filename from the diff --git header
                 const match = block.match(/^diff --git a\/(.+?) b\//m);
                 const fileName = match ? match[1] : "changed file";
+                if (!extFilter(fileName)) {
+                    continue;
+                }
                 units.push({ content: "```diff\n" + block + "\n```", fileName });
             }
         }
@@ -1024,7 +1046,6 @@ class SidePanelProvider {
     // Webview view resolver
     // -------------------------------------------------------------------------
     resolveWebviewView(webviewView) {
-        this.webviewView = webviewView;
         const mediaUri = vscode.Uri.joinPath(this.context.extensionUri, 'media');
         webviewView.webview.options = { enableScripts: true, localResourceRoots: [mediaUri] };
         const scriptUri = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'webview.js'));
@@ -1216,7 +1237,7 @@ class SidePanelProvider {
                     break;
                 }
                 case "newSession": {
-                    await this.startNewSession(webviewView);
+                    await this.startNewSession(webviewView, message.model);
                     break;
                 }
                 case "loadSession": {
@@ -1246,10 +1267,26 @@ class SidePanelProvider {
                     break;
                 }
                 case "freeMemory": {
-                    if (this.activeProvider === "ollama" && this.currentModel) {
+                    const modelToUnload = this.currentModel || message.model || "";
+                    outputChannel.appendLine(`[freeMemory] received — provider: ${this.activeProvider}, currentModel: "${this.currentModel}", messageModel: "${message.model}", using: "${modelToUnload}"`);
+                    if (this.activeProvider === "ollama" && modelToUnload) {
                         const ollamaUrl = vscode.workspace.getConfiguration("raiview").get("ollamaUrl") ?? "http://localhost:11434";
-                        await (0, modelfile_1.unloadOllamaModel)(this.currentModel, ollamaUrl);
-                        webviewView.webview.postMessage({ type: "systemMessage", text: `Model ${this.currentModel} unloaded from memory.` });
+                        outputChannel.appendLine(`[freeMemory] sending keep_alive:0 to ${ollamaUrl} for model "${modelToUnload}"`);
+                        webviewView.webview.postMessage({ type: "freeMemoryStatus", loading: true });
+                        try {
+                            await (0, modelfile_1.unloadOllamaModel)(modelToUnload, ollamaUrl, (msg) => outputChannel.appendLine(msg));
+                            outputChannel.appendLine(`[freeMemory] unload completed successfully`);
+                            webviewView.webview.postMessage({ type: "freeMemoryStatus", loading: false });
+                            webviewView.webview.postMessage({ type: "systemMessage", text: `Model ${modelToUnload} unloaded from GPU memory.` });
+                        }
+                        catch (err) {
+                            outputChannel.appendLine(`[freeMemory] unload failed: ${err.message ?? err}`);
+                            webviewView.webview.postMessage({ type: "freeMemoryStatus", loading: false });
+                            webviewView.webview.postMessage({ type: "chatError", message: `Failed to unload model: ${err.message ?? err}` });
+                        }
+                    }
+                    else {
+                        outputChannel.appendLine(`[freeMemory] skipped — condition not met (provider must be ollama with a loaded model)`);
                     }
                     break;
                 }

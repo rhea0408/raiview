@@ -83,6 +83,10 @@ let enhancedEnabled = false;
 let streamingPartsTotal = 0;
 let streamingPartCurrent = 0;
 
+// Buffer for parts messages that arrive before aiThinking creates the container
+let pendingPartsTotal = 0;
+let pendingPartInfoText = '';
+
 // ---- Auto-scroll ----
 function scrollToBottom() {
   if (!userScrolledUp) chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -405,7 +409,7 @@ function finalizeStreamingBubble(html, meta) {
   const container = document.getElementById('streamingContainer');
   if (!container) return;
   container.id = '';
-  container.innerHTML = html;
+  container.innerHTML = '<div class="assistant-msg">' + html + '</div>';
   if (meta) {
     const foot = document.createElement('div');
     foot.className = 'msg-foot';
@@ -691,7 +695,11 @@ refreshBtn.addEventListener('click', () => {
   vscode.postMessage({ command: 'refreshModels' });
   setTimeout(() => refreshBtn.classList.remove('spin'), 1000);
 });
-freeMemoryBtn.addEventListener('click', () => vscode.postMessage({ command: 'freeMemory' }));
+freeMemoryBtn.addEventListener('click', () => {
+  freeMemoryBtn.disabled = true;
+  freeMemoryBtn.title = 'Unloading…';
+  vscode.postMessage({ command: 'freeMemory', model: availableSel.value });
+});
 
 // ---- Review Git Changes ----
 reviewBtn.addEventListener('click', () => {
@@ -723,7 +731,7 @@ followupInput.addEventListener('keydown', (e) => {
 
 // ---- New session ----
 newSessionBtn.addEventListener('click', () => {
-  vscode.postMessage({ command: 'newSession' });
+  vscode.postMessage({ command: 'newSession', model: availableSel.value });
 });
 
 // ---- Clear history ----
@@ -821,32 +829,30 @@ window.addEventListener('message', (event) => {
 
     case 'systemMessage': {
       const text = msg.text || '';
-      // Parts info — intercept and route to streaming state
-      if (streamingBubble) {
-        if (text.includes('Content split into')) {
-          const m = text.match(/Content split into (\d+) parts/);
-          if (m) {
-            const total = parseInt(m[1], 10);
-            streamingPartsTotal = total;
-            streamingPartCurrent = 0;
+      // "Content split into N parts" — buffer total and apply if container exists
+      if (text.includes('Content split into')) {
+        const m = text.match(/Content split into (\d+) parts/);
+        if (m) {
+          pendingPartsTotal = parseInt(m[1], 10);
+          if (streamingBubble) {
             const metaEl = document.getElementById('streamingMeta');
             if (metaEl) {
               metaEl.style.display = 'block';
-              metaEl.innerHTML = 'Content split into <b>' + total + '</b> parts. Reviewing each part in sequence…';
+              metaEl.innerHTML = 'Content split into <b>' + pendingPartsTotal + '</b> parts. Reviewing each part in sequence…';
             }
-            updateStreamingParts(total, 0);
+            updateStreamingParts(pendingPartsTotal, 0);
+            streamingPartsTotal = pendingPartsTotal;
           }
-          break;
         }
-        if (text.startsWith('— Part')) {
+        break;
+      }
+      // "— Part X of N: filename —" or "Generating combined summary" — buffer and apply
+      if (text.startsWith('— Part') || text.includes('Generating combined summary')) {
+        pendingPartInfoText = text;
+        if (streamingBubble) {
           updateStreamingPartInfo(text);
-          break;
         }
-        if (text.includes('Generating combined summary')) {
-          const partInfoEl = document.getElementById('streamingPartInfo');
-          if (partInfoEl) { partInfoEl.style.display = 'block'; partInfoEl.textContent = text; }
-          break;
-        }
+        break;
       }
       addSystemNote(text);
       break;
@@ -884,6 +890,21 @@ window.addEventListener('message', (event) => {
       appendToChat(streamingBubble);
       streamingPartsTotal  = 0;
       streamingPartCurrent = 0;
+      // Apply any parts info that arrived before the container was created
+      if (pendingPartsTotal > 0) {
+        const metaEl = document.getElementById('streamingMeta');
+        if (metaEl) {
+          metaEl.style.display = 'block';
+          metaEl.innerHTML = 'Content split into <b>' + pendingPartsTotal + '</b> parts. Reviewing each part in sequence…';
+        }
+        updateStreamingParts(pendingPartsTotal, 0);
+        streamingPartsTotal = pendingPartsTotal;
+        pendingPartsTotal = 0;
+      }
+      if (pendingPartInfoText) {
+        updateStreamingPartInfo(pendingPartInfoText);
+        pendingPartInfoText = '';
+      }
       break;
 
     case 'streamStart':
@@ -962,6 +983,8 @@ window.addEventListener('message', (event) => {
       userScrolledUp = false;
       streamingPartsTotal = 0;
       streamingPartCurrent = 0;
+      pendingPartsTotal = 0;
+      pendingPartInfoText = '';
       exitStopMode();
       reviewBtn.classList.remove('hidden-btn');
       reviewBtn.disabled = false;
@@ -1005,6 +1028,11 @@ window.addEventListener('message', (event) => {
 
     case 'loading':
       if (!msg.loading) setInputsDisabled(false);
+      break;
+
+    case 'freeMemoryStatus':
+      freeMemoryBtn.disabled = msg.loading;
+      freeMemoryBtn.title = msg.loading ? 'Unloading…' : 'Unload model from Ollama memory';
       break;
   }
 });
