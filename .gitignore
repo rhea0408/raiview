@@ -18,6 +18,9 @@ yarn-error.log*
 .vscode/
 .vscodeignore
 
+# Build output
+/out/
+
 # Ignore built files
 CLAUDE.md
 *.vsix
