@@ -2,7 +2,7 @@
   "name": "raiview",
   "displayName": "Raiview",
   "description": "AI-powered code reviews with Ollama, OpenAI, and Claude",
-  "version": "0.0.4",
+  "version": "1.0.0",
   "license": "MIT",
   "repository": {
     "type": "git",
