@@ -2,7 +2,7 @@
   "name": "raiview",
   "displayName": "Raiview",
   "description": "AI-powered code reviews with Ollama, OpenAI, and Claude",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "RheaPradhan",
   "icon": "media/raiview-logo.png",
   "license": "MIT",
@@ -33,7 +33,7 @@
         {
           "id": "raiview",
           "title": "Raiview",
-          "icon": "media/raiview-logo.png"
+          "icon": "media/icon.svg"
         }
       ]
     },

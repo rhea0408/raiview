@@ -2,6 +2,10 @@
 
 All notable changes to Raiview will be documented in this file.
 
+## [1.0.3] — 2026-06-09
+
+### Fix activity bar icon
+
 ## [1.0.2] — 2026-06-09
 
 ### Fix marketplace icon
