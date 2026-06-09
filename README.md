@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 <p align="center">
-  <img src="docs/screenshots/hero-review-result.png" alt="Raiview panel showing a completed code review with structured findings" width="520">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/hero-review-result.png" alt="Raiview panel showing a completed code review with structured findings" width="520">
   <br>
   <sub><i>Structured, actionable findings — right in your sidebar</i></sub>
 </p>
@@ -25,7 +25,7 @@ Works with **Ollama** (local or remote), **OpenAI**, and **Anthropic Claude**.
 Findings are grouped by category — Correctness, Performance, Design, and more — with color-coded severity chips and a summary verdict. No more walls of text to parse.
 
 <p align="center">
-  <img src="docs/screenshots/findings-closeup.png" alt="Structured findings with Critical, Warning, and Suggestion severity chips" width="600">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/findings-closeup.png" alt="Structured findings with Critical, Warning, and Suggestion severity chips" width="600">
 </p>
 
 ---
@@ -35,7 +35,7 @@ Findings are grouped by category — Correctness, Performance, Design, and more 
 Click **Review Git Changes** to review everything staged and unstaged. Large diffs are split by file and reviewed in sequence — a progress bar tracks each part.
 
 <p align="center">
-  <img src="docs/screenshots/git-diff-multipart.png" alt="Git diff review with multi-part streaming progress indicator" width="600">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/git-diff-multipart.png" alt="Git diff review with multi-part streaming progress indicator" width="600">
 </p>
 
 ---
@@ -45,7 +45,7 @@ Click **Review Git Changes** to review everything staged and unstaged. Large dif
 After any review, ask follow-up questions directly in the panel. An exchange counter keeps track of your session budget (up to 20 exchanges).
 
 <p align="center">
-  <img src="docs/screenshots/followup-conversation.png" alt="Follow-up conversation with exchange counter" width="600">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/followup-conversation.png" alt="Follow-up conversation with exchange counter" width="600">
 </p>
 
 ---
@@ -55,7 +55,7 @@ After any review, ask follow-up questions directly in the panel. An exchange cou
 Review the file open in your editor. Large files are split at function and method boundaries so each chunk gets proper attention, then findings are merged into a combined summary.
 
 <p align="center">
-  <img src="docs/screenshots/file-review-result.png" alt="File review showing structured output for an active editor file" width="600">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/file-review-result.png" alt="File review showing structured output for an active editor file" width="600">
 </p>
 
 ---
@@ -65,7 +65,7 @@ Review the file open in your editor. Large files are split at function and metho
 Your last 5 review sessions are saved automatically. Click any session card to open a read-only transcript and revisit the findings.
 
 <p align="center">
-  <img src="docs/screenshots/session-history.png" alt="Session history list with read-only transcript viewer open" width="600">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/session-history.png" alt="Session history list with read-only transcript viewer open" width="600">
 </p>
 
 ---
@@ -75,7 +75,7 @@ Your last 5 review sessions are saved automatically. Click any session card to o
 Create a purpose-built `code-reviewer` model from any base model — optimized with a structured system prompt and tuned generation parameters for code review specifically.
 
 <p align="center">
-  <img src="docs/screenshots/enhanced-reviewer-settings.png" alt="Settings panel showing Enhanced Reviewer section with model creation" width="600">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/enhanced-reviewer-settings.png" alt="Settings panel showing Enhanced Reviewer section with model creation" width="600">
 </p>
 
 ---
@@ -117,7 +117,7 @@ Click the **Raiview icon** in the Activity Bar (left sidebar). The Raiview panel
 Expand the **Provider** section and select your LLM provider. The model list populates automatically. Pick a model from the dropdown.
 
 <p align="center">
-  <img src="docs/screenshots/provider-switch.png" alt="Provider and model dropdowns in the Raiview panel" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/provider-switch.png" alt="Provider and model dropdowns in the Raiview panel" width="480">
   <br>
   <sub><i>Select your provider and model before starting a review</i></sub>
 </p>
@@ -127,7 +127,7 @@ Expand the **Provider** section and select your LLM provider. The model list pop
 Click the **gear icon** (⚙) in the topbar to open Settings. Under **API Keys**, select your provider, paste your key, and click **Save Key**. Required for OpenAI and Claude; optional for remote Ollama instances. The key is stored in VS Code's encrypted secrets store — never on disk in plain text.
 
 <p align="center">
-  <img src="docs/screenshots/api-key-settings.png" alt="API Keys section in the Settings panel" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/api-key-settings.png" alt="API Keys section in the Settings panel" width="480">
   <br>
   <sub><i>Keys are stored securely — you only need to enter them once</i></sub>
 </p>
@@ -140,13 +140,13 @@ Make some changes in your repo (or open a file), then click:
 - **Send for Review** — reviews the file open in the active editor
 
 <p align="center">
-  <img src="docs/screenshots/first-review-buttons.png" alt="Review Git Changes and Send for Review action buttons" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/first-review-buttons.png" alt="Review Git Changes and Send for Review action buttons" width="480">
 </p>
 
 Findings appear as the model generates. When the review completes, the full structured output is shown:
 
 <p align="center">
-  <img src="docs/screenshots/hero-review-result.png" alt="Completed review showing structured findings with severity ratings" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/hero-review-result.png" alt="Completed review showing structured findings with severity ratings" width="480">
   <br>
   <sub><i>Findings are grouped by category with color-coded severity</i></sub>
 </p>
@@ -166,7 +166,7 @@ Click **Review Git Changes** to review all staged and unstaged changes in your r
 If the diff is large, Raiview splits it by file and reviews each part in sequence. A progress bar shows which part is currently being reviewed and which are complete.
 
 <p align="center">
-  <img src="docs/screenshots/git-diff-multipart.png" alt="Multi-part review progress with parts indicator and current file name" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/git-diff-multipart.png" alt="Multi-part review progress with parts indicator and current file name" width="480">
   <br>
   <sub><i>Large diffs are split by file — each part reviewed individually, then merged into a combined summary</i></sub>
 </p>
@@ -182,7 +182,7 @@ Click **Send for Review** to review the file currently open in your editor. Raiv
 Each chunk produces up to 5 findings. After all chunks are reviewed, findings are de-duplicated and merged into a combined summary.
 
 <p align="center">
-  <img src="docs/screenshots/file-review-result.png" alt="File review showing structured findings for an open editor file" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/file-review-result.png" alt="File review showing structured findings for an open editor file" width="480">
   <br>
   <sub><i>Function-level splitting means the model focuses on a manageable chunk of code at a time</i></sub>
 </p>
@@ -203,7 +203,7 @@ At the bottom, a **Summary Rating** gives an overall verdict:
 - 🔴 **Needs Major Revision** — critical issues that should be addressed before merging
 
 <p align="center">
-  <img src="docs/screenshots/findings-closeup.png" alt="Close-up of finding cards showing Critical, Warning, and Suggestion chips with descriptions" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/findings-closeup.png" alt="Close-up of finding cards showing Critical, Warning, and Suggestion chips with descriptions" width="480">
   <br>
   <sub><i>Findings are grouped by category — scroll down to see the summary rating</i></sub>
 </p>
@@ -217,7 +217,7 @@ After a review completes, a text input appears at the bottom of the panel. You c
 The exchange counter (e.g. `3 / 20`) shows how many turns remain in your session. At 16 exchanges you'll see a warning; at 20 the session ends and you can start a new one.
 
 <p align="center">
-  <img src="docs/screenshots/followup-conversation.png" alt="Follow-up conversation with the exchange counter showing 3 of 20" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/followup-conversation.png" alt="Follow-up conversation with the exchange counter showing 3 of 20" width="480">
   <br>
   <sub><i>Keep the conversation going — ask for fixes, explanations, or deeper analysis</i></sub>
 </p>
@@ -231,7 +231,7 @@ Click **↺ Start new session** at any time to clear the conversation and begin 
 You can change your provider or model at any point — even while a session is active. Open the **Provider** section, make your selection, and the next message will use the new provider and model. Your conversation history is preserved.
 
 <p align="center">
-  <img src="docs/screenshots/provider-switch.png" alt="Provider dropdown open during an active review session" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/provider-switch.png" alt="Provider dropdown open during an active review session" width="480">
   <br>
   <sub><i>Switching provider or model mid-session doesn't reset the conversation</i></sub>
 </p>
@@ -245,7 +245,7 @@ Raiview saves your last 5 review sessions automatically. The **Recent Sessions**
 Click any session card to open a read-only transcript of the full review.
 
 <p align="center">
-  <img src="docs/screenshots/session-history.png" alt="Session history list with a session transcript viewer open below" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/session-history.png" alt="Session history list with a session transcript viewer open below" width="480">
   <br>
   <sub><i>Past sessions are always accessible — click any card to view the full transcript</i></sub>
 </p>
@@ -264,7 +264,7 @@ The Enhanced Reviewer creates a dedicated Ollama model tuned specifically for co
 Raiview streams the build progress. Once complete, the new model (`code-reviewer-<base>:latest`) appears in your model list.
 
 <p align="center">
-  <img src="docs/screenshots/enhanced-reviewer-settings.png" alt="Settings panel with Enhanced Reviewer enabled and the create model button" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/enhanced-reviewer-settings.png" alt="Settings panel with Enhanced Reviewer enabled and the create model button" width="480">
   <br>
   <sub><i>Build a code-review-optimized model from any base Ollama model</i></sub>
 </p>
@@ -279,7 +279,7 @@ When you finish a session, the Ollama model stays loaded in GPU/RAM by default �
 - Or enable **Auto-unload model** in Settings to have Raiview unload automatically whenever you start a new session
 
 <p align="center">
-  <img src="docs/screenshots/free-memory-topbar.png" alt="Topbar showing the Free Memory trash icon button" width="480">
+  <img src="https://raw.githubusercontent.com/rhea0408/raiview/main/media/screenshots/free-memory-topbar.png" alt="Topbar showing the Free Memory trash icon button" width="480">
   <br>
   <sub><i>The Free Memory button appears in the topbar when no session is active</i></sub>
 </p>
