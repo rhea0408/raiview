@@ -3,7 +3,7 @@
 ### Code reviews powered by AI, without leaving your editor.
 
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.110+-blue?logo=visualstudiocode)](https://code.visualstudio.com/)
-[![Version](https://img.shields.io/badge/version-1.0.0-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.2-informational)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 <p align="center">

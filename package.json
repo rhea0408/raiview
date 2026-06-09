@@ -2,8 +2,9 @@
   "name": "raiview",
   "displayName": "Raiview",
   "description": "AI-powered code reviews with Ollama, OpenAI, and Claude",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "RheaPradhan",
+  "icon": "media/raiview-logo.png",
   "license": "MIT",
   "repository": {
     "type": "git",
